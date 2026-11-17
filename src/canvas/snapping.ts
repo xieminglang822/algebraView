@@ -1,8 +1,9 @@
 import type { FeatureLayer } from '../core/featureFinder';
+import { sampleShape } from '../core/shapes';
 import type { FeaturePoint, Point } from '../core/types';
 import { t } from '../i18n/locale';
 
-export type SnapKind = 'curve' | FeaturePoint['kind'];
+export type SnapKind = 'curve' | 'shape' | FeaturePoint['kind'];
 
 export interface SnapTarget {
   world: Point;
@@ -25,8 +26,8 @@ function distanceBetween(left: Point, right: Point): number {
 
 /**
  * Finds the nearest snappable object under the pointer:
- * 1. algebraic feature markers (zeros / intercepts / extrema / intersections)
- * 2. the curve itself, sampled at the pointer's x coordinate
+ * 1. feature markers (zeros, intercepts, extrema, shape centres/vertices/foci, intersections)
+ * 2. a function curve at the pointer's x coordinate, or a shape outline sampled in parameter space
  */
 export function findSnapTarget(
   pointerScreen: Point,
@@ -63,28 +64,39 @@ export function findSnapTarget(
   }
 
   const worldX = toWorldX(pointerScreen.x);
-  let nearestCurve: SnapTarget | null = null;
-  for (const layer of layers) {
-    const worldY = layer.compiled.evaluate(worldX);
-    if (!Number.isFinite(worldY)) {
-      continue;
-    }
-    const screen = toScreen({ x: worldX, y: worldY });
+  let nearestOutline: SnapTarget | null = null;
+
+  const consider = (world: Point, kind: 'curve' | 'shape', layerId: string): void => {
+    const screen = toScreen(world);
     const distance = distanceBetween(pointerScreen, screen);
     if (distance > curveTolerance) {
-      continue;
+      return;
     }
-    if (!nearestCurve || distance < nearestCurve.distance) {
-      nearestCurve = {
-        world: { x: worldX, y: worldY },
+    if (!nearestOutline || distance < nearestOutline.distance) {
+      nearestOutline = {
+        world,
         screen,
         distance,
-        kind: 'curve',
-        label: t('feature.curve'),
-        layerId: layer.id,
-        layerIds: [layer.id],
+        kind,
+        label: kind === 'curve' ? t('feature.curve') : t('feature.shape'),
+        layerId,
+        layerIds: [layerId],
       };
     }
+  };
+
+  for (const layer of layers) {
+    if (layer.kind === 'function') {
+      const worldY = layer.compiled.evaluate(worldX);
+      if (Number.isFinite(worldY)) {
+        consider({ x: worldX, y: worldY }, 'curve', layer.id);
+      }
+      continue;
+    }
+    for (const point of sampleShape(layer.shape, 360)) {
+      consider(point, 'shape', layer.id);
+    }
   }
-  return nearestCurve;
+
+  return nearestOutline;
 }

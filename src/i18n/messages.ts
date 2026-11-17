@@ -3,10 +3,10 @@ export type Locale = 'zh' | 'en';
 export const LOCALE_STORAGE_KEY = 'algebraView.locale';
 
 const zh = {
-  'app.tagline': '结构化函数输入 · 实时 2D 图像实验室',
+  'app.tagline': '结构化函数与图形 · 实时 2D 图像实验室',
   'app.title': 'algebraView · 函数图像实验室',
   'app.description':
-    '结构化填空输入、实时 2D 函数图像、代数特征点求解与拍照识别的数学学习工具。',
+    '结构化填空输入、函数与 2D 图形（圆/旋转椭圆）、代数特征点求解与拍照识别的数学学习工具。',
   'app.layerCount': '{count} / {max} 图层',
   'app.addFunction': '添加函数',
   'app.add': '添加',
@@ -24,6 +24,10 @@ const zh = {
   'app.languageShortEnglish': 'EN',
   'app.languageShortChinese': '中文',
   'app.current': '当前',
+  'app.addMenu': '添加图层',
+  'app.menuFunction': '函数图层',
+  'app.menuCircle': '圆',
+  'app.menuEllipse': '椭圆',
 
   'slot.decrease': '减小 {label}',
   'slot.increase': '增大 {label}',
@@ -83,6 +87,7 @@ const zh = {
   'canvas.emptyBody': '添加一个函数图层，开始探索代数与图像。',
   'canvas.addFunction': '添加函数',
   'canvas.pointOnCurve': '{layer}(x) 上的点',
+  'canvas.pointOnShape': '{layer} 上的点',
   'canvas.intersection': '交点 {layers}',
 
   'feature.zero': '零点',
@@ -91,6 +96,10 @@ const zh = {
   'feature.maximum': '局部极大值',
   'feature.intersection': '交点',
   'feature.curve': '函数图像',
+  'feature.shape': '图形轮廓',
+  'feature.center': '圆心 / 中心',
+  'feature.vertex': '顶点',
+  'feature.focus': '焦点',
 
   'template.group.polynomial': '多项式',
   'template.group.trig': '三角 / 指对',
@@ -123,6 +132,19 @@ const zh = {
   'template.slot.exponential.b': 'b（底数）',
   'template.slot.logarithm.a': 'a（纵向伸缩）',
   'template.slot.logarithm.b': 'b（底数，需 > 0 且 ≠ 1）',
+
+  'shape.circle.name': '圆',
+  'shape.ellipse.name': '椭圆',
+  'shape.cardAria': '图形卡片 {label}',
+  'shape.typeAria': '图形类型',
+  'shape.param.h': 'h（圆心 / 中心 x）',
+  'shape.param.k': 'k（圆心 / 中心 y）',
+  'shape.param.r': 'r（半径）',
+  'shape.param.a': 'a（x 方向半轴）',
+  'shape.param.b': 'b（y 方向半轴）',
+  'shape.param.theta': 'θ（旋转角，度）',
+  'shape.formulaRotated': '椭圆 · 中心 ({h}, {k}) · a = {a}，b = {b}，θ = {theta}°',
+  'shape.hint': '图形与函数曲线、其它图形的交点会自动标注。',
 
   'ocr.dialogAria': '拍照识别公式',
   'ocr.title': '拍照识别公式',
@@ -233,10 +255,10 @@ const zh = {
 export type TranslationKey = keyof typeof zh;
 
 const en: Record<TranslationKey, string> = {
-  'app.tagline': 'Structured function input · Real-time 2D graphing lab',
+  'app.tagline': 'Structured functions & shapes · Real-time 2D graphing lab',
   'app.title': 'algebraView · Function Graphing Lab',
   'app.description':
-    'A maths learning tool with structured slot input, real-time 2D graphs, algebraic feature detection, and photo recognition.',
+    'A maths learning tool with structured slot input for functions and 2D shapes (circles and rotated ellipses), real-time graphs, algebraic feature detection, and photo recognition.',
   'app.layerCount': '{count} / {max} layers',
   'app.addFunction': 'Add function',
   'app.add': 'Add',
@@ -255,6 +277,10 @@ const en: Record<TranslationKey, string> = {
   'app.languageShortEnglish': 'EN',
   'app.languageShortChinese': '中文',
   'app.current': 'Active',
+  'app.addMenu': 'Add layer',
+  'app.menuFunction': 'Function layer',
+  'app.menuCircle': 'Circle',
+  'app.menuEllipse': 'Ellipse',
 
   'slot.decrease': 'Decrease {label}',
   'slot.increase': 'Increase {label}',
@@ -314,6 +340,7 @@ const en: Record<TranslationKey, string> = {
   'canvas.emptyBody': 'Add a function layer to start exploring algebra visually.',
   'canvas.addFunction': 'Add function',
   'canvas.pointOnCurve': 'Point on {layer}(x)',
+  'canvas.pointOnShape': 'Point on {layer}',
   'canvas.intersection': 'Intersection {layers}',
 
   'feature.zero': 'Zero',
@@ -322,6 +349,10 @@ const en: Record<TranslationKey, string> = {
   'feature.maximum': 'Local maximum',
   'feature.intersection': 'Intersection',
   'feature.curve': 'Curve',
+  'feature.shape': 'Shape outline',
+  'feature.center': 'Center',
+  'feature.vertex': 'Vertex',
+  'feature.focus': 'Focus',
 
   'template.group.polynomial': 'Polynomials',
   'template.group.trig': 'Trig / Exp / Log',
@@ -354,6 +385,19 @@ const en: Record<TranslationKey, string> = {
   'template.slot.exponential.b': 'b (base)',
   'template.slot.logarithm.a': 'a (vertical stretch)',
   'template.slot.logarithm.b': 'b (base, must be > 0 and ≠ 1)',
+
+  'shape.circle.name': 'Circle',
+  'shape.ellipse.name': 'Ellipse',
+  'shape.cardAria': 'Shape card {label}',
+  'shape.typeAria': 'Shape type',
+  'shape.param.h': 'h (center x)',
+  'shape.param.k': 'k (center y)',
+  'shape.param.r': 'r (radius)',
+  'shape.param.a': 'a (semi-axis x)',
+  'shape.param.b': 'b (semi-axis y)',
+  'shape.param.theta': 'θ (rotation, degrees)',
+  'shape.formulaRotated': 'Ellipse · center ({h}, {k}) · a = {a}, b = {b}, θ = {theta}°',
+  'shape.hint': 'Intersections with functions and other shapes are marked automatically.',
 
   'ocr.dialogAria': 'Scan a formula',
   'ocr.title': 'Scan a formula',

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { ExpressionError, compileExpression, type CompiledExpression } from '../core/mathParser';
 import { resolveLayerExpression } from '../core/templates';
-import type { FunctionLayer } from '../core/types';
+import { isFunctionLayer, type FunctionLayer } from '../core/types';
 import { useLocaleStore } from '../i18n/useLocale';
 import { translate } from '../i18n/messages';
 import { useGraphStore } from '../store/useGraphStore';
@@ -18,11 +18,11 @@ export interface ResolvedLayer {
  * Errors are surfaced per-layer so one bad input never breaks the whole canvas.
  */
 export function useCompiledLayers(): ResolvedLayer[] {
-  const layers = useGraphStore((state) => state.layers);
+  const allLayers = useGraphStore((state) => state.layers);
   const locale = useLocaleStore((state) => state.locale);
   return useMemo(
     () =>
-      layers.map((layer) => {
+      allLayers.filter(isFunctionLayer).map((layer) => {
         const expression = resolveLayerExpression(layer);
         if (expression === '') {
           return {
@@ -52,6 +52,6 @@ export function useCompiledLayers(): ResolvedLayer[] {
         }
       }),
     // `locale` is a dependency because compile errors are localized at throw time.
-    [layers, locale],
+    [allLayers, locale],
   );
 }

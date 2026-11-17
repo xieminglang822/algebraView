@@ -1,5 +1,6 @@
 import type { CompiledExpression } from './mathParser';
-import type { FeaturePoint, Point, Viewport } from './types';
+import { shapeFeatures, shapeImplicit, shapePoint } from './shapes';
+import type { FeaturePoint, Point, ShapeLayer, Viewport } from './types';
 import { getActiveLocale } from '../i18n/locale';
 import { translate, type Locale } from '../i18n/messages';
 
@@ -359,13 +360,12 @@ function isVisible(point: Point, viewport: Viewport, marginFraction = 0.02): boo
   );
 }
 
-export interface FeatureLayer {
-  id: string;
-  compiled: CompiledExpression;
-}
+export type FeatureLayer =
+  | { kind: 'function'; id: string; compiled: CompiledExpression }
+  | { kind: 'shape'; id: string; shape: ShapeLayer };
 
-function featuresForLayer(
-  layer: FeatureLayer,
+function functionFeaturesForLayer(
+  layer: Extract<FeatureLayer, { kind: 'function' }>,
   viewport: Viewport,
   locale: Locale,
 ): FeaturePoint[] {
@@ -419,7 +419,140 @@ function featuresForLayer(
   return features;
 }
 
-/** Intersections between every visible pair, merged when three curves meet. */
+function shapeFeaturesForLayer(
+  layer: Extract<FeatureLayer, { kind: 'shape' }>,
+  viewport: Viewport,
+  locale: Locale,
+): FeaturePoint[] {
+  return shapeFeatures(layer.shape)
+    .filter((feature) => isVisible(feature.point, viewport))
+    .map((feature) => ({
+      x: feature.point.x,
+      y: feature.point.y,
+      kind: feature.kind,
+      label:
+        feature.kind === 'center'
+          ? translate(locale, 'feature.center')
+          : feature.kind === 'vertex'
+            ? translate(locale, 'feature.vertex')
+            : translate(locale, 'feature.focus'),
+      layerIds: [layer.id],
+    }));
+}
+
+const PARAMETER_MIN = 0;
+const PARAMETER_MAX = Math.PI * 2;
+const PARAMETER_SAMPLES = 1800;
+
+function parameterFunction(evaluate: (t: number) => number): CompiledExpression {
+  return { expression: 'shape-intersection', evaluate };
+}
+
+function dedupePoints(points: readonly Point[], tolerance: number): Point[] {
+  const result: Point[] = [];
+  for (const point of points) {
+    if (
+      !result.some(
+        (candidate) =>
+          Math.abs(candidate.x - point.x) <= tolerance &&
+          Math.abs(candidate.y - point.y) <= tolerance,
+      )
+    ) {
+      result.push(point);
+    }
+  }
+  return result;
+}
+
+/** Function × shape: roots of `shapeY(t) − f(shapeX(t))` over one full turn. */
+export function findFunctionShapeIntersections(
+  fn: CompiledExpression,
+  shape: ShapeLayer,
+  viewport: Viewport,
+  options: FindOptions = {},
+): Point[] {
+  const scale = Math.max(1, viewport.xMax - viewport.xMin, viewport.yMax - viewport.yMin);
+  const scalar = parameterFunction((t) => {
+    const point = shapePoint(shape, t);
+    const functionY = fn.evaluate(point.x);
+    if (!Number.isFinite(functionY)) {
+      return Number.NaN;
+    }
+    return point.y - functionY;
+  });
+  const roots = findZeros(scalar, PARAMETER_MIN, PARAMETER_MAX, {
+    samples: Math.max(options.samples ?? PARAMETER_SAMPLES, 900),
+    maxResults: options.maxResults ?? 24,
+  });
+  const points: Point[] = [];
+  for (const root of roots) {
+    const point = shapePoint(shape, root.x);
+    const functionY = fn.evaluate(point.x);
+    if (
+      Number.isFinite(functionY) &&
+      Math.abs(functionY - point.y) <= scale * 1e-6 &&
+      isVisible(point, viewport)
+    ) {
+      points.push(point);
+    }
+  }
+  return dedupePoints(points, scale * 1e-6);
+}
+
+/** Shape × shape: roots of shape B's implicit equation along shape A's outline. */
+export function findShapeShapeIntersections(
+  left: ShapeLayer,
+  right: ShapeLayer,
+  viewport: Viewport,
+  options: FindOptions = {},
+): Point[] {
+  if (left.id === right.id) {
+    return [];
+  }
+  const scale = Math.max(1, viewport.xMax - viewport.xMin, viewport.yMax - viewport.yMin);
+  const scalar = parameterFunction((t) => shapeImplicit(right, shapePoint(left, t)));
+  const roots = findZeros(scalar, PARAMETER_MIN, PARAMETER_MAX, {
+    samples: Math.max(options.samples ?? PARAMETER_SAMPLES, 900),
+    maxResults: options.maxResults ?? 24,
+  });
+  const points: Point[] = [];
+  for (const root of roots) {
+    const point = shapePoint(left, root.x);
+    if (
+      Number.isFinite(shapeImplicit(right, point)) &&
+      Math.abs(shapeImplicit(right, point)) <= 1e-4 &&
+      isVisible(point, viewport)
+    ) {
+      points.push(point);
+    }
+  }
+  return dedupePoints(points, scale * 1e-6);
+}
+
+function findPairIntersections(
+  left: FeatureLayer,
+  right: FeatureLayer,
+  viewport: Viewport,
+): Point[] {
+  if (left.kind === 'function' && right.kind === 'function') {
+    return findIntersections(left.compiled, right.compiled, viewport.xMin, viewport.xMax, {
+      samples: 1600,
+      maxResults: 16,
+    });
+  }
+  if (left.kind === 'function' && right.kind === 'shape') {
+    return findFunctionShapeIntersections(left.compiled, right.shape, viewport);
+  }
+  if (left.kind === 'shape' && right.kind === 'function') {
+    return findFunctionShapeIntersections(right.compiled, left.shape, viewport);
+  }
+  if (left.kind === 'shape' && right.kind === 'shape') {
+    return findShapeShapeIntersections(left.shape, right.shape, viewport);
+  }
+  return [];
+}
+
+/** Intersections between every visible pair, merged when three layers meet. */
 export function findIntersectionFeatures(
   layers: readonly FeatureLayer[],
   viewport: Viewport,
@@ -429,17 +562,14 @@ export function findIntersectionFeatures(
   const xTolerance = (viewport.xMax - viewport.xMin) * 1e-3;
   const yTolerance = (viewport.yMax - viewport.yMin) * 1e-3;
 
-  for (let left = 0; left < layers.length; left += 1) {
-    for (let right = left + 1; right < layers.length; right += 1) {
-      const leftLayer = layers[left];
-      const rightLayer = layers[right];
+  for (let leftIndex = 0; leftIndex < layers.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < layers.length; rightIndex += 1) {
+      const leftLayer = layers[leftIndex];
+      const rightLayer = layers[rightIndex];
       if (!leftLayer || !rightLayer) {
         continue;
       }
-      const points = findIntersections(leftLayer.compiled, rightLayer.compiled, viewport.xMin, viewport.xMax, {
-        samples: 1600,
-        maxResults: 16,
-      });
+      const points = findPairIntersections(leftLayer, rightLayer, viewport);
       for (const point of points) {
         if (!isVisible(point, viewport)) {
           continue;
@@ -472,7 +602,7 @@ export function findIntersectionFeatures(
 }
 
 /**
- * Feature points for the active function plus all pairwise intersections.
+ * Feature points for the active layer plus all pairwise intersections.
  * Intended to be called from a debounced hook, never directly per animation frame.
  */
 export function findFeatureSet(
@@ -482,7 +612,11 @@ export function findFeatureSet(
   locale: Locale = getActiveLocale(),
 ): FeaturePoint[] {
   const active = layers.find((layer) => layer.id === activeLayerId) ?? null;
-  const layerFeatures = active ? featuresForLayer(active, viewport, locale) : [];
+  const layerFeatures = !active
+    ? []
+    : active.kind === 'function'
+      ? functionFeaturesForLayer(active, viewport, locale)
+      : shapeFeaturesForLayer(active, viewport, locale);
   const intersections = findIntersectionFeatures(layers, viewport, locale);
   return [...layerFeatures, ...intersections].slice(0, MAX_FEATURES);
 }

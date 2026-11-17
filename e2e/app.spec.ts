@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 const APP_PATH = '/algebraView/';
 
 function cards(page: Page) {
-  return page.locator('[data-testid^="function-card-"]');
+  return page.locator('[data-testid^="function-card-"], [data-testid^="shape-card-"]');
 }
 
 function slot(card: Locator, label: string): Locator {
@@ -12,6 +12,14 @@ function slot(card: Locator, label: string): Locator {
 
 function slider(card: Locator, label: string): Locator {
   return card.getByRole('slider', { name: `${label} 滑块`, exact: true });
+}
+
+async function addLayer(
+  page: Page,
+  kind: 'function' | 'circle' | 'ellipse' = 'function',
+): Promise<void> {
+  await page.getByTestId('add-layer').click();
+  await page.getByTestId(`add-${kind}`).click();
 }
 
 async function gotoApp(page: Page, locale: 'zh' | 'en' = 'zh'): Promise<void> {
@@ -52,7 +60,7 @@ test.describe('algebraView smoke', () => {
 
   test('UC-02: adds a second layer and switches it to a linear template', async ({ page }) => {
     await gotoApp(page);
-    await page.getByTestId('add-layer').click();
+    await addLayer(page);
     await expect(cards(page)).toHaveCount(2);
     await expect(page.getByTestId('layer-count')).toContainText('2 / 8');
 
@@ -64,6 +72,31 @@ test.describe('algebraView smoke', () => {
 
     await page.getByTestId('reset-view').click();
     await expect(page.getByTestId('graph-canvas')).toBeVisible();
+  });
+
+  test('adds circle and rotated ellipse layers with mixed intersections', async ({ page }) => {
+    await gotoApp(page);
+    await addLayer(page, 'circle');
+    await expect(cards(page)).toHaveCount(2);
+    const circleCard = page.locator('[data-testid^="shape-card-"]').first();
+    await expect(circleCard.getByTestId('shape-formula')).toContainText('x² + y² = 9');
+    await circleCard.getByRole('spinbutton', { name: 'r（半径）', exact: true }).fill('4');
+    await expect(circleCard.getByTestId('shape-formula')).toContainText('16');
+
+    await addLayer(page, 'ellipse');
+    const ellipseCard = page.locator('[data-testid^="shape-card-"]').nth(1);
+    await ellipseCard.getByRole('spinbutton', { name: 'θ（旋转角，度）', exact: true }).fill('30');
+    await expect(ellipseCard.getByTestId('shape-formula')).toContainText('θ = 30°');
+    await expect(cards(page)).toHaveCount(3);
+
+    // Add a line crossing both shapes; mixed intersections must be computed.
+    await addLayer(page);
+    const lineCard = page.locator('[data-testid^="function-card-"]').last();
+    await lineCard.getByLabel('函数模板', { exact: true }).selectOption('linear');
+    await lineCard.getByRole('spinbutton', { name: 'a（斜率）', exact: true }).fill('0.5');
+    const canvas = page.getByTestId('graph-canvas');
+    await expect(canvas).toHaveAttribute('data-intersection-count', /^[1-9]/);
+    await expect(canvas).toHaveAttribute('data-feature-count', /^[1-9]/);
   });
 
   test('LaTeX input validates, shows slot preview and applies to the card', async ({ page }) => {
@@ -125,7 +158,7 @@ test.describe('algebraView smoke', () => {
   test('enforces the eight-layer limit', async ({ page }) => {
     await gotoApp(page);
     for (let index = 1; index < 8; index += 1) {
-      await page.getByTestId('add-layer').click();
+      await addLayer(page);
     }
     await expect(cards(page)).toHaveCount(8);
     await expect(page.getByTestId('add-layer')).toBeDisabled();
@@ -174,7 +207,7 @@ test.describe('algebraView smoke', () => {
 
   test('deletes a layer and falls back to the remaining one', async ({ page }) => {
     await gotoApp(page);
-    await page.getByTestId('add-layer').click();
+    await addLayer(page);
     await expect(cards(page)).toHaveCount(2);
     await cards(page).nth(1).getByRole('button', { name: '删除图层' }).click();
     await expect(cards(page)).toHaveCount(1);

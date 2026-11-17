@@ -15,7 +15,8 @@
 | **LaTeX 输入** | 独立页签实时解析，支持 `\frac`、`\sqrt`、`\pi`、`\sin`、`\log_{b}`、花括号指数等；非法输入给出错误定位与具体修改建议，可一键写回槽位 |
 | **自由表达式兜底** | `sin(x)/x`、`1/x`、`abs(x)` 等任意 mathjs 表达式，实时校验并绘制 |
 | **拍照识别（OCR）** | 摄像头/文件上传 → Canvas 灰度化 + 对比度拉伸 + Otsu 二值化（≤1024px）→ `MathOCRProvider` 接口；默认 Tesseract.js 离线兜底，配置 Mathpix 环境变量后切换云端高精度；识别结果进入校对弹窗再回填槽位 |
-| **多图层管理** | 最多 8 个图层，高对比度唯一配色，显隐/激活/删除，`+` 快速新增；图例可点击聚焦 |
+| **多图层管理** | 最多 8 个图层，高对比度唯一配色，显隐/激活/删除，`+` 菜单新增；函数与图形共享同一画布，图例可点击聚焦 |
+| **2D 图形（圆 / 旋转椭圆）** | 圆（圆心 + 半径）、椭圆（中心 + 双半轴 + 旋转角 θ）；自动标注中心、顶点、焦点；支持与函数曲线、其它图形求交（函数×图形、图形×图形） |
 | **2D 笛卡尔引擎** | 1/2/5 自适应网格刻度、滚轮/双指缩放（锚点不漂移）、拖拽平移、一键重置；`requestAnimationFrame` + 脏标记重绘 |
 | **智能吸附与特征点** | 指针靠近曲线自动吸附并显示 `(x, y)` 浮窗；自动求解并标注激活函数的零点、y 轴截距、局部极值，以及任意两条曲线的交点 |
 | **间断点保护** | 采样时对 NaN/∞ 与斜率突变处主动断开 `lineTo`，`1/x`、`tan(x)`、`1/x²` 不会出现错误竖线 |
@@ -31,6 +32,10 @@
 | --- | --- |
 | ![桌面端总览](docs/screenshots/desktop-overview.png) | ![多图层交点](docs/screenshots/two-layers-intersections.png) |
 
+| 2D 图形与混合交点 | 添加图层菜单 |
+| --- | --- |
+| ![2D 图形混合交点](docs/screenshots/shapes-mixed.png) | ![添加图层菜单](docs/screenshots/add-layer-menu.png) |
+
 | LaTeX 实时校验 | 拍照识别 → 校对 → 回填 |
 | --- | --- |
 | ![LaTeX 输入](docs/screenshots/latex-input.png) | ![OCR 校对](docs/screenshots/ocr-review.png) |
@@ -38,6 +43,10 @@
 **English UI**（same graph, fully localized interface）：
 
 ![English UI](docs/screenshots/desktop-english.png)
+
+**2D shapes in English**：
+
+![English shapes](docs/screenshots/shapes-english.png)
 
 <p align="center">
   <img src="docs/screenshots/mobile.png" alt="移动端布局" width="320" />
@@ -114,7 +123,7 @@ npm run build       # vite build，产出 dist/
 
 也可一次运行：`npm run verify`。
 
-当前测试基线：**11 个测试文件 / 110 个用例全部通过**，覆盖：
+当前测试基线：**12 个测试文件 / 125 个用例全部通过**，覆盖：
 
 - 模板表达式构建与求值（8 套模板）
 - mathjs 编译、缓存、错误信息、采样与定义域缺口
@@ -127,8 +136,10 @@ npm run build       # vite build，产出 dist/
 - 图像预处理：灰度化、低对比度保护、自适应（积分图）二值化、反色、Otsu 兜底
 - OCR 引擎选择（Mathpix / Tesseract / Demo）与「识别文本 → LaTeX → 槽位」映射
 - 中英双语字典完整性、插值、模板/槽位名称、解析器与数学引擎错误本地化
+- 圆/旋转椭圆的参数采样、隐式值、中心/顶点/焦点、公式格式化
+- 函数×图形、图形×图形数值求交；混合图层特征点与吸附
 
-端到端冒烟（Playwright，桌面 Chromium + 移动 Chromium）**26 个用例全部通过**，覆盖初始渲染、UC-01 滑块联动、UC-02 多图层、LaTeX 应用与错误建议、多项式增删项、视口/网格/吸附开关、8 图层上限、OCR 弹窗、中英切换与删除图层、符号求导/精确零点。
+端到端冒烟（Playwright，桌面 Chromium + 移动 Chromium）**28 个用例全部通过**，覆盖初始渲染、UC-01 滑块联动、UC-02 多图层、圆/旋转椭圆参数与混合交点、LaTeX 应用与错误建议、多项式增删项、视口/网格/吸附开关、8 图层上限、OCR 弹窗、中英切换与删除图层、符号求导/精确零点。
 
 ---
 
@@ -158,7 +169,8 @@ algebraView/
 │   ├── core/
 │   │   ├── mathParser.ts          # mathjs 编译、求值、采样、错误诊断
 │   │   ├── latexParser.ts         # LaTeX 归一化 + AST 结构匹配 + 修改建议
-│   │   ├── featureFinder.ts       # 零点 / 极值 / 截距 / 交点数值求解
+│   │   ├── featureFinder.ts       # 零点 / 极值 / 截距 / 函数与图形交点数值求解
+│   │   ├── shapes.ts              # 圆/旋转椭圆几何、参数、特征点、公式
 │   │   ├── templates.ts           # 模板、槽位、图层工厂、表达式构建
 │   │   ├── symbolic.ts            # mathjs 导数 + nerdamer 精确求根
 │   │   ├── ocrAdapter.ts          # MathOCRProvider（Tesseract / Mathpix / Demo）与回填
@@ -168,13 +180,16 @@ algebraView/
 │   ├── canvas/
 │   │   ├── CoordinateSystem.ts    # 世界↔屏幕映射、网格 / 轴 / 标签渲染
 │   │   ├── CurveRenderer.ts       # 自适应采样、间断点分段、抗锯齿绘制
-│   │   ├── snapping.ts            # 曲线与特征点吸附
+│   │   ├── ShapeRenderer.ts       # 圆/椭圆半透明填充与轮廓绘制
+│   │   ├── snapping.ts            # 曲线、图形轮廓与特征点吸附
 │   │   └── viewport.ts            # 视口缩放 / 平移 / 1-2-5 刻度
 │   ├── store/useGraphStore.ts     # Zustand 全局状态树
 │   ├── i18n/                      # 中英字典、locale 检测/持久化、useTranslation
 │   ├── hooks/                     # 编译层、特征点防抖、符号分析
 │   ├── components/
 │   │   ├── FunctionCard.tsx       # 函数卡片（槽位 / LaTeX / 自由表达式）
+│   │   ├── ShapeCard.tsx          # 圆/椭圆参数卡片（含旋转角）
+│   │   ├── AddLayerMenu.tsx       # 添加函数 / 圆 / 椭圆菜单
 │   │   ├── BlankInputSlot.tsx     # 系数输入 + 步进器 + 折叠滑块
 │   │   ├── GraphCanvas.tsx        # Canvas、手势、吸附浮窗、图例
 │   │   └── OcrModal.tsx           # 拍照 / 上传 / 识别 / 校对
@@ -195,6 +210,7 @@ algebraView/
 | **UC-01 二次函数形态探索** | 选二次标准式 → `a=1,b=0,c=-4` → 拖 `a` 到 `-1` | `e2e/app.spec.ts` · UC-01；`latexParser.test.ts` 映射用例 |
 | **UC-02 多函数对比与交点** | 新增第二图层 → 一次函数 → `y=2x-1` → 靠近交点吸附 | `featureFinder.test.ts` 交点用例；`e2e` 多图层用例 |
 | **UC-03 纸质习题拍照识别** | 卡片相机图标 → 拍照/上传 → 校对 `2sin(x)+1` → 应用 | `latexParser.test.ts` UC-03 四槽位映射；`e2e` 弹窗开合 |
+| **图形与混合交点** | “+”菜单添加圆/椭圆 → 调半径与旋转角 → 再添加函数直线 | `shapes.test.ts` 几何用例；`featureFinder.test.ts` 函数×图形/图形×图形；`e2e` 混合交点用例 |
 
 > 画布上的吸附浮窗与特征点标记由 Canvas 直接绘制，非 DOM 节点；E2E 中断言画布存在与交互按钮状态，视觉结果通过人工/截图检查。
 
@@ -214,4 +230,6 @@ algebraView/
 - **Tesseract.js 数学识别精度有限**：其输出为普通文本，经启发式转换后才进入 LaTeX 解析；生产环境建议配置 Mathpix。离线引擎首次运行需要联网下载 `eng.traineddata`。预处理已改为自适应二值化（含低对比度保护与反色），实测可正确读取印刷体 `y = 2sin(x) + 1` 并回填四个正弦槽位。
 - **nerdamer 按需加载**：主包不包含符号引擎；若网络/打包环境缺失该 chunk，界面自动回退为 mathjs 导数 + 数值求根，不影响绘图。符号引擎返回的根会排序、去重，并只在当前视口 x 范围内展示。
 - 数值求根在极端高频振荡函数上可能遗漏部分根；可通过缩放视口重新求解（求解会随视口防抖重算）。
-- 构建产物主 chunk 约 900 kB（gzip 约 271 kB），已对 nerdamer / Tesseract 做动态拆分；后续可按需进一步拆分 mathjs。
+- **图形求交为数值解**：函数×图形在图形参数 `t ∈ [0, 2π]` 上求根，图形×图形在参数曲线上求另一图形的隐式方程；切点、渐近线附近会做残差过滤，但极端病态曲线仍建议缩放后复核。
+- 图形首版只支持圆与旋转椭圆；不包含双曲线、抛物线、图形填充样式编辑或 3D 立体几何。3D 仍是后续独立阶段。
+- 构建产物主 chunk 约 946 kB（gzip 约 283 kB），已对 nerdamer / Tesseract 做动态拆分；后续可按需进一步拆分 mathjs。

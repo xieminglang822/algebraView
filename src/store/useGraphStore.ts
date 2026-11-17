@@ -1,5 +1,15 @@
 import { create } from 'zustand';
-import type { FunctionLayer, LayerStructure, PolynomialTerm, TemplateId, Viewport } from '../core/types';
+import type {
+  FunctionLayer,
+  Layer,
+  LayerStructure,
+  NewLayerKind,
+  PolynomialTerm,
+  ShapeLayer,
+  ShapeType,
+  TemplateId,
+  Viewport,
+} from '../core/types';
 import {
   LAYER_COLORS,
   MAX_LAYERS,
@@ -13,6 +23,11 @@ import {
   nextLayerLabel,
   resolveLayerExpression,
 } from '../core/templates';
+import {
+  createShapeLayer,
+  nextShapeLabel,
+  normaliseShapeSlotValue,
+} from '../core/shapes';
 import { DEFAULT_VIEWPORT, panViewport, resetViewport, zoomViewport } from '../canvas/viewport';
 
 export interface GraphPreferences {
@@ -22,14 +37,15 @@ export interface GraphPreferences {
 }
 
 export interface GraphState {
-  layers: FunctionLayer[];
+  layers: Layer[];
   activeLayerId: string;
   viewport: Viewport;
   preferences: GraphPreferences;
-  addLayer: () => void;
+  addLayer: (kind?: NewLayerKind) => void;
   removeLayer: (layerId: string) => void;
   setActiveLayer: (layerId: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
+  setShapeType: (layerId: string, shapeType: ShapeType) => void;
   setTemplate: (layerId: string, templateId: TemplateId) => void;
   setSlotValue: (layerId: string, slotKey: string, value: number) => void;
   addPolynomialTerm: (layerId: string) => void;
@@ -59,11 +75,54 @@ const INITIAL_LAYER = createLayer({
 function replaceLayer(
   state: GraphState,
   layerId: string,
-  update: (layer: FunctionLayer) => FunctionLayer,
+  update: (layer: Layer) => Layer,
 ): Partial<GraphState> {
   return {
     layers: state.layers.map((layer) => (layer.id === layerId ? update(layer) : layer)),
   };
+}
+
+function replaceFunctionLayer(
+  state: GraphState,
+  layerId: string,
+  update: (layer: FunctionLayer) => FunctionLayer,
+): Partial<GraphState> {
+  return replaceLayer(state, layerId, (layer) =>
+    layer.kind === 'function' ? update(layer) : layer,
+  );
+}
+
+function replaceShapeLayer(
+  state: GraphState,
+  layerId: string,
+  update: (layer: ShapeLayer) => ShapeLayer,
+): Partial<GraphState> {
+  return replaceLayer(state, layerId, (layer) =>
+    layer.kind === 'shape' ? update(layer) : layer,
+  );
+}
+
+function shapeSlotsForType(
+  current: ShapeLayer,
+  shapeType: ShapeType,
+): Record<string, number> {
+  const h = current.slots.h ?? 0;
+  const k = current.slots.k ?? 0;
+  if (shapeType === 'circle') {
+    const radius = current.shapeType === 'circle' ? (current.slots.r ?? 3) : (current.slots.a ?? 3);
+    return { h, k, r: radius };
+  }
+  if (current.shapeType === 'ellipse') {
+    return {
+      h,
+      k,
+      a: current.slots.a ?? 3,
+      b: current.slots.b ?? 2,
+      theta: current.slots.theta ?? 0,
+    };
+  }
+  const radius = current.slots.r ?? 3;
+  return { h, k, a: radius, b: Math.max(0.1, radius * 0.7), theta: 0 };
 }
 
 export const useGraphStore = create<GraphState>()((set) => ({
@@ -76,20 +135,25 @@ export const useGraphStore = create<GraphState>()((set) => ({
     snapEnabled: true,
   },
 
-  addLayer: () => {
+  addLayer: (kind = 'function') => {
     set((state) => {
       if (state.layers.length >= MAX_LAYERS) {
         return state;
       }
-      const layer = createLayer({
-        label: nextLayerLabel(state.layers),
+      if (kind === 'function') {
+        const layer = createLayer({
+          label: nextLayerLabel(state.layers),
+          color: nextLayerColor(state.layers),
+          templateId: 'quadratic-standard',
+        });
+        return { layers: [...state.layers, layer], activeLayerId: layer.id };
+      }
+      const layer = createShapeLayer({
+        label: nextShapeLabel(state.layers),
         color: nextLayerColor(state.layers),
-        templateId: 'quadratic-standard',
+        shapeType: kind,
       });
-      return {
-        layers: [...state.layers, layer],
-        activeLayerId: layer.id,
-      };
+      return { layers: [...state.layers, layer], activeLayerId: layer.id };
     });
   },
 
@@ -103,7 +167,9 @@ export const useGraphStore = create<GraphState>()((set) => ({
   },
 
   setActiveLayer: (layerId) => {
-    set((state) => (state.layers.some((layer) => layer.id === layerId) ? { activeLayerId: layerId } : state));
+    set((state) =>
+      state.layers.some((layer) => layer.id === layerId) ? { activeLayerId: layerId } : state,
+    );
   },
 
   toggleLayerVisibility: (layerId) => {
@@ -112,18 +178,22 @@ export const useGraphStore = create<GraphState>()((set) => ({
     );
   },
 
+  setShapeType: (layerId, shapeType) => {
+    set((state) =>
+      replaceShapeLayer(state, layerId, (layer) => ({
+        ...layer,
+        shapeType,
+        slots: shapeSlotsForType(layer, shapeType),
+      })),
+    );
+  },
+
   setTemplate: (layerId, templateId) => {
     set((state) =>
-      replaceLayer(state, layerId, (layer) => {
+      replaceFunctionLayer(state, layerId, (layer) => {
         if (templateId === 'raw') {
           const rawExpression = resolveLayerExpression(layer);
-          return {
-            ...layer,
-            templateId: 'raw',
-            mode: 'raw',
-            rawExpression,
-            slots: {},
-          };
+          return { ...layer, templateId: 'raw', mode: 'raw', rawExpression, slots: {} };
         }
         return {
           ...layer,
@@ -142,17 +212,24 @@ export const useGraphStore = create<GraphState>()((set) => ({
       return;
     }
     set((state) =>
-      replaceLayer(state, layerId, (layer) => ({
-        ...layer,
-        mode: 'slots',
-        slots: { ...layer.slots, [slotKey]: value },
-      })),
+      replaceLayer(state, layerId, (layer) => {
+        if (layer.kind === 'shape') {
+          return {
+            ...layer,
+            slots: {
+              ...layer.slots,
+              [slotKey]: normaliseShapeSlotValue(layer.shapeType, slotKey, value),
+            },
+          };
+        }
+        return { ...layer, mode: 'slots', slots: { ...layer.slots, [slotKey]: value } };
+      }),
     );
   },
 
   addPolynomialTerm: (layerId) => {
     set((state) =>
-      replaceLayer(state, layerId, (layer) => {
+      replaceFunctionLayer(state, layerId, (layer) => {
         if (layer.terms.length >= MAX_POLYNOMIAL_TERMS) {
           return layer;
         }
@@ -170,7 +247,7 @@ export const useGraphStore = create<GraphState>()((set) => ({
 
   removePolynomialTerm: (layerId, termId) => {
     set((state) =>
-      replaceLayer(state, layerId, (layer) => {
+      replaceFunctionLayer(state, layerId, (layer) => {
         if (layer.terms.length <= 1) {
           return layer;
         }
@@ -181,7 +258,7 @@ export const useGraphStore = create<GraphState>()((set) => ({
 
   updatePolynomialTerm: (layerId, termId, patch) => {
     set((state) =>
-      replaceLayer(state, layerId, (layer) => ({
+      replaceFunctionLayer(state, layerId, (layer) => ({
         ...layer,
         mode: 'slots',
         terms: layer.terms.map((term) => {
@@ -202,7 +279,7 @@ export const useGraphStore = create<GraphState>()((set) => ({
 
   setInputMode: (layerId, mode) => {
     set((state) =>
-      replaceLayer(state, layerId, (layer) => {
+      replaceFunctionLayer(state, layerId, (layer) => {
         if (mode === 'raw') {
           const rawExpression = layer.rawExpression.trim() || resolveLayerExpression(layer);
           return {
@@ -229,7 +306,7 @@ export const useGraphStore = create<GraphState>()((set) => ({
 
   setRawExpression: (layerId, expression) => {
     set((state) =>
-      replaceLayer(state, layerId, (layer) => ({
+      replaceFunctionLayer(state, layerId, (layer) => ({
         ...layer,
         mode: 'raw',
         templateId: 'raw',
@@ -241,7 +318,7 @@ export const useGraphStore = create<GraphState>()((set) => ({
 
   applyStructure: (layerId, structure, latexSource = '') => {
     set((state) =>
-      replaceLayer(state, layerId, (layer) => ({
+      replaceFunctionLayer(state, layerId, (layer) => ({
         ...layer,
         templateId: structure.templateId,
         mode: structure.templateId === 'raw' ? 'raw' : 'slots',
@@ -275,5 +352,3 @@ export const useGraphStore = create<GraphState>()((set) => ({
     }));
   },
 }));
-
-

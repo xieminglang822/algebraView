@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Languages, Plus } from 'lucide-react';
+import { AddLayerMenu } from './components/AddLayerMenu';
 import { FunctionCard } from './components/FunctionCard';
 import { GraphCanvas } from './components/GraphCanvas';
 import { OcrModal } from './components/OcrModal';
+import { ShapeCard } from './components/ShapeCard';
 import { MAX_LAYERS } from './core/templates';
 import { useTranslation } from './i18n/useLocale';
 import { useCompiledLayers } from './hooks/useCompiledLayers';
@@ -15,6 +17,10 @@ export default function App() {
   const addLayer = useGraphStore((state) => state.addLayer);
   const resolvedLayers = useCompiledLayers();
   const [ocrLayerId, setOcrLayerId] = useState<string | null>(null);
+  const resolvedById = useMemo(
+    () => new Map(resolvedLayers.map((resolved) => [resolved.layer.id, resolved])),
+    [resolvedLayers],
+  );
 
   const layerCountLabel = useMemo(
     () => t('app.layerCount', { count: layers.length, max: MAX_LAYERS }),
@@ -32,7 +38,7 @@ export default function App() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-100">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur">
+      <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur">
         <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-lg font-semibold text-white shadow-sm">
           <span aria-hidden="true" className="font-serif italic">
             f
@@ -62,18 +68,7 @@ export default function App() {
           >
             {layerCountLabel}
           </span>
-          <button
-            type="button"
-            data-testid="add-layer"
-            onClick={addLayer}
-            disabled={atCapacity}
-            title={atCapacity ? t('app.addFunctionLimit') : t('app.addFunctionTitle')}
-            className="inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:bg-brand-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            <Plus size={14} />
-            <span className="hidden sm:inline">{t('app.addFunction')}</span>
-            <span className="sm:hidden">{t('app.add')}</span>
-          </button>
+          <AddLayerMenu testId="add-layer" compact />
         </div>
       </header>
 
@@ -90,34 +85,42 @@ export default function App() {
               </h2>
               <p className="mt-0.5 text-[10px] text-slate-400">{t('app.layersSubtitle')}</p>
             </div>
-            <button
-              type="button"
-              onClick={addLayer}
-              disabled={atCapacity}
-              aria-label={t('app.addLayerAria')}
-              title={atCapacity ? t('app.addFunctionLimit') : t('app.addLayerAria')}
-              className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-brand-50 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus size={12} />
-              {t('app.add')}
-            </button>
+            <AddLayerMenu testId="add-layer-sidebar" variant="ghost" />
           </div>
 
           <div className="scrollbar-slim min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-5 pt-1">
-            {resolvedLayers.map((resolved) => (
-              <FunctionCard
-                key={resolved.layer.id}
-                layer={resolved.layer}
-                resolved={resolved}
-                active={resolved.layer.id === activeLayerId}
-                onOpenOcr={(layerId) => setOcrLayerId(layerId)}
-                onDeleted={(layerId) => {
-                  if (ocrLayerId === layerId) {
-                    setOcrLayerId(null);
-                  }
-                }}
-              />
-            ))}
+            {layers.map((layer) => {
+              const active = layer.id === activeLayerId;
+              const onDeleted = (layerId: string): void => {
+                if (ocrLayerId === layerId) {
+                  setOcrLayerId(null);
+                }
+              };
+              if (layer.kind === 'shape') {
+                return (
+                  <ShapeCard
+                    key={layer.id}
+                    layer={layer}
+                    active={active}
+                    onDeleted={onDeleted}
+                  />
+                );
+              }
+              const resolved = resolvedById.get(layer.id);
+              if (!resolved) {
+                return null;
+              }
+              return (
+                <FunctionCard
+                  key={layer.id}
+                  layer={layer}
+                  resolved={resolved}
+                  active={active}
+                  onOpenOcr={(layerId) => setOcrLayerId(layerId)}
+                  onDeleted={onDeleted}
+                />
+              );
+            })}
 
             {layers.length === 0 ? (
               <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white/60 px-4 py-8 text-center">
@@ -125,7 +128,7 @@ export default function App() {
                 <p className="mt-1 text-[11px] text-slate-400">{t('app.emptyBody')}</p>
                 <button
                   type="button"
-                  onClick={addLayer}
+                  onClick={() => addLayer('function')}
                   className="mt-3 inline-flex items-center gap-1 rounded-full bg-brand-600 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-brand-700"
                 >
                   <Plus size={12} />

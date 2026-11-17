@@ -9,12 +9,14 @@ import {
 import { LayoutGrid, Magnet, Plus, RotateCcw, Sparkles, ZoomIn, ZoomOut } from 'lucide-react';
 import { CoordinateSystem } from '../canvas/CoordinateSystem';
 import { drawCurveSegments, sampleCurve } from '../canvas/CurveRenderer';
+import { drawShape } from '../canvas/ShapeRenderer';
 import { findSnapTarget, type SnapTarget } from '../canvas/snapping';
 import { panViewport, zoomViewport } from '../canvas/viewport';
 import type { FeatureLayer } from '../core/featureFinder';
 import type { SamplePoint } from '../core/mathParser';
+import { shapeFormula } from '../core/shapes';
 import { resolveLayerFormula } from '../core/templates';
-import type { CanvasSize, FeaturePoint, Point, Viewport } from '../core/types';
+import type { CanvasSize, FeaturePoint, Layer, Point, Viewport } from '../core/types';
 import { useCompiledLayers, type ResolvedLayer } from '../hooks/useCompiledLayers';
 import { useFeaturePoints } from '../hooks/useFeaturePoints';
 import { t } from '../i18n/locale';
@@ -22,6 +24,7 @@ import { useTranslation } from '../i18n/useLocale';
 import { useGraphStore, type GraphPreferences } from '../store/useGraphStore';
 
 interface SceneState {
+  layers: Layer[];
   resolvedLayers: ResolvedLayer[];
   viewport: Viewport;
   size: CanvasSize;
@@ -43,6 +46,7 @@ const MAX_DPR = 2.5;
 
 export function GraphCanvas() {
   const { t: translate } = useTranslation();
+  const layers = useGraphStore((state) => state.layers);
   const resolvedLayers = useCompiledLayers();
   const viewport = useGraphStore((state) => state.viewport);
   const activeLayerId = useGraphStore((state) => state.activeLayerId);
@@ -52,7 +56,7 @@ export function GraphCanvas() {
   const addLayer = useGraphStore((state) => state.addLayer);
   const setActiveLayer = useGraphStore((state) => state.setActiveLayer);
   const togglePreference = useGraphStore((state) => state.togglePreference);
-  const { features, pending } = useFeaturePoints(resolvedLayers, activeLayerId);
+  const { features, pending } = useFeaturePoints(layers, resolvedLayers, activeLayerId);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -93,6 +97,16 @@ export function GraphCanvas() {
 
     const coordinateSystem = new CoordinateSystem(scene.viewport, scene.size, dpr);
     coordinateSystem.draw(ctx, { showGrid: scene.preferences.showGrid });
+
+    // Shapes are drawn first so translucent fills never cover the function curves.
+    for (const layer of scene.layers) {
+      if (layer.kind === 'shape' && layer.visible) {
+        drawShape(ctx, coordinateSystem, layer, {
+          color: layer.color,
+          active: layer.id === scene.activeLayerId,
+        });
+      }
+    }
 
     const cache = segmentCacheRef.current;
     for (const resolved of scene.resolvedLayers) {
@@ -148,15 +162,32 @@ export function GraphCanvas() {
       return;
     }
     const coordinateSystem = new CoordinateSystem(scene.viewport, scene.size, 1);
-    const featureLayers: FeatureLayer[] = scene.resolvedLayers
-      .filter((resolved) => resolved.layer.visible && resolved.compiled !== null)
-      .map((resolved) => ({
-        id: resolved.layer.id,
-        compiled: resolved.compiled as NonNullable<ResolvedLayer['compiled']>,
-      }));
+    const compiledById = new Map(
+      scene.resolvedLayers
+        .filter(
+          (resolved): resolved is ResolvedLayer & {
+            compiled: NonNullable<ResolvedLayer['compiled']>;
+          } => resolved.compiled !== null,
+        )
+        .map((resolved) => [resolved.layer.id, resolved.compiled]),
+    );
+    const snapLayers: FeatureLayer[] = [];
+    for (const layer of scene.layers) {
+      if (!layer.visible) {
+        continue;
+      }
+      if (layer.kind === 'shape') {
+        snapLayers.push({ kind: 'shape', id: layer.id, shape: layer });
+      } else {
+        const compiled = compiledById.get(layer.id);
+        if (compiled) {
+          snapLayers.push({ kind: 'function', id: layer.id, compiled });
+        }
+      }
+    }
     snapRef.current = findSnapTarget(
       pointer,
-      featureLayers,
+      snapLayers,
       scene.features,
       (point) => coordinateSystem.toScreen(point),
       (screenX) => coordinateSystem.toWorldX(screenX),
@@ -202,6 +233,7 @@ export function GraphCanvas() {
 
   useEffect(() => {
     sceneRef.current = {
+      layers,
       resolvedLayers,
       viewport,
       size,
@@ -210,13 +242,13 @@ export function GraphCanvas() {
       preferences,
     };
     requestDraw();
-  }, [resolvedLayers, viewport, size, features, activeLayerId, preferences, requestDraw]);
+  }, [layers, resolvedLayers, viewport, size, features, activeLayerId, preferences, requestDraw]);
 
   useEffect(() => {
     snapRef.current = null;
     pinnedRef.current = null;
     requestDraw();
-  }, [viewport, resolvedLayers, size, requestDraw]);
+  }, [viewport, layers, resolvedLayers, size, requestDraw]);
 
   useEffect(() => {
     let frame = 0;
@@ -437,6 +469,10 @@ export function GraphCanvas() {
         <canvas
           ref={canvasRef}
           data-testid="graph-canvas"
+          data-feature-count={features.length}
+          data-intersection-count={
+            features.filter((feature) => feature.kind === 'intersection').length
+          }
           aria-label={translate('canvas.aria')}
           className="block h-full w-full cursor-crosshair touch-none select-none outline-none"
           onPointerDown={handlePointerDown}
@@ -506,31 +542,39 @@ export function GraphCanvas() {
         </CanvasTool>
       </div>
 
-      {resolvedLayers.length > 0 ? (
+      {layers.length > 0 ? (
         <div className="absolute bottom-3 left-3 max-w-[70%] space-y-1">
-          {resolvedLayers.map((resolved) => (
-            <button
-              key={resolved.layer.id}
-              type="button"
-              onClick={() => setActiveLayer(resolved.layer.id)}
-              className={`flex max-w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[11px] shadow-sm ring-1 backdrop-blur transition ${
-                resolved.layer.id === activeLayerId
-                  ? 'bg-white text-slate-800 ring-slate-300'
-                  : 'bg-white/80 text-slate-500 ring-slate-200 hover:bg-white'
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className={`h-0.5 w-4 shrink-0 rounded-full ${resolved.layer.visible ? '' : 'opacity-30'}`}
-                style={{ backgroundColor: resolved.layer.color }}
-              />
-              <span className="shrink-0 font-mono font-medium">{resolved.layer.label}</span>
-              <span className="truncate font-mono text-[10px] text-slate-400">
-                {resolveLayerFormula(resolved.layer) || '—'}
-              </span>
-              {resolved.error ? <span className="text-rose-400">⚠</span> : null}
-            </button>
-          ))}
+          {layers.map((layer) => {
+            const resolved =
+              layer.kind === 'function'
+                ? resolvedLayers.find((candidate) => candidate.layer.id === layer.id)
+                : undefined;
+            const formula =
+              layer.kind === 'shape' ? shapeFormula(layer) : resolveLayerFormula(layer);
+            return (
+              <button
+                key={layer.id}
+                type="button"
+                onClick={() => setActiveLayer(layer.id)}
+                className={`flex max-w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[11px] shadow-sm ring-1 backdrop-blur transition ${
+                  layer.id === activeLayerId
+                    ? 'bg-white text-slate-800 ring-slate-300'
+                    : 'bg-white/80 text-slate-500 ring-slate-200 hover:bg-white'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`h-0.5 w-4 shrink-0 rounded-full ${layer.visible ? '' : 'opacity-30'}`}
+                  style={{ backgroundColor: layer.color }}
+                />
+                <span className="shrink-0 font-mono font-medium">{layer.label}</span>
+                <span className="truncate font-mono text-[10px] text-slate-400">
+                  {formula || '—'}
+                </span>
+                {resolved?.error ? <span className="text-rose-400">⚠</span> : null}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <div className="absolute inset-0 grid place-items-center bg-white/60">
@@ -541,7 +585,7 @@ export function GraphCanvas() {
             <p className="mt-1 text-xs text-slate-400">{translate('canvas.emptyBody')}</p>
             <button
               type="button"
-              onClick={addLayer}
+              onClick={() => addLayer('function')}
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
               <Plus size={14} />
@@ -586,7 +630,7 @@ function layerColorFor(layerId: string | null, scene: SceneState): string {
   if (!layerId) {
     return '#0f172a';
   }
-  return scene.resolvedLayers.find((resolved) => resolved.layer.id === layerId)?.layer.color ?? '#0f172a';
+  return scene.layers.find((layer) => layer.id === layerId)?.color ?? '#0f172a';
 }
 
 function featureColor(feature: FeaturePoint, scene: SceneState): string {
@@ -607,12 +651,20 @@ function formatCoordinate(value: number): string {
   return String(Number(value.toFixed(3)));
 }
 
+interface BubbleLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 function drawFeatureMarkers(
   ctx: CanvasRenderingContext2D,
   coordinateSystem: CoordinateSystem,
   scene: SceneState,
 ): void {
   let labelBudget = 12;
+  const placedLabels: BubbleLayout[] = [];
   for (const feature of scene.features) {
     const screen = coordinateSystem.toScreen(feature);
     if (
@@ -637,7 +689,7 @@ function drawFeatureMarkers(
       ctx.rect(screen.x - 3.5, screen.y - 3.5, 7, 7);
       ctx.fill();
       ctx.stroke();
-    } else if (feature.kind === 'extremum') {
+    } else if (feature.kind === 'extremum' || feature.kind === 'focus') {
       ctx.moveTo(screen.x, screen.y - 5);
       ctx.lineTo(screen.x + 5, screen.y);
       ctx.lineTo(screen.x, screen.y + 5);
@@ -645,6 +697,24 @@ function drawFeatureMarkers(
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      if (feature.kind === 'focus') {
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, 1.6, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+    } else if (feature.kind === 'vertex') {
+      ctx.rect(screen.x - 4, screen.y - 4, 8, 8);
+      ctx.fill();
+      ctx.stroke();
+    } else if (feature.kind === 'center') {
+      ctx.arc(screen.x, screen.y, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
     } else {
       ctx.moveTo(screen.x - 4, screen.y - 4);
       ctx.lineTo(screen.x + 4, screen.y + 4);
@@ -665,23 +735,29 @@ function drawFeatureMarkers(
     if (belongsToActive && labelBudget > 0) {
       labelBudget -= 1;
       const layerNames = feature.layerIds
-        .map(
-          (id) =>
-            scene.resolvedLayers.find((resolved) => resolved.layer.id === id)?.layer.label ?? '',
-        )
+        .map((id) => scene.layers.find((layer) => layer.id === id)?.label ?? '')
         .filter((name) => name !== '')
         .join(' / ');
       const title =
         feature.kind === 'intersection' && layerNames !== ''
           ? t('canvas.intersection', { layers: layerNames })
           : feature.label;
-      drawBubble(
-        ctx,
-        { x: screen.x, y: screen.y },
-        [title, `(${formatCoordinate(feature.x)}, ${formatCoordinate(feature.y)})`],
-        color,
-        scene.size,
+      const lines = [
+        title,
+        `(${formatCoordinate(feature.x)}, ${formatCoordinate(feature.y)})`,
+      ];
+      const layout = bubbleLayout(ctx, { x: screen.x, y: screen.y }, lines, scene.size);
+      const collides = placedLabels.some(
+        (placed) =>
+          layout.x < placed.x + placed.width + 3 &&
+          layout.x + layout.width + 3 > placed.x &&
+          layout.y < placed.y + placed.height + 3 &&
+          layout.y + layout.height + 3 > placed.y,
       );
+      if (!collides) {
+        placedLabels.push(layout);
+        drawBubbleLayout(ctx, layout, lines, color);
+      }
     }
   }
 }
@@ -702,11 +778,9 @@ function drawSnapIndicator(
     return;
   }
   const color =
-    snap.kind === 'curve'
-      ? layerColorFor(snap.layerId, scene)
-      : snap.kind === 'intersection'
-        ? '#0f172a'
-        : layerColorFor(snap.layerIds[0] ?? null, scene);
+    snap.kind === 'intersection'
+      ? '#0f172a'
+      : layerColorFor(snap.layerId ?? snap.layerIds[0] ?? null, scene);
 
   ctx.save();
   ctx.beginPath();
@@ -722,20 +796,19 @@ function drawSnapIndicator(
   ctx.stroke();
   ctx.restore();
 
-  const layerName =
-    snap.kind === 'curve'
-      ? scene.resolvedLayers.find((resolved) => resolved.layer.id === snap.layerId)?.layer.label
-      : null;
+  const layerName = scene.layers.find((layer) => layer.id === snap.layerId)?.label;
   const layerNames = snap.layerIds
-    .map((id) => scene.resolvedLayers.find((resolved) => resolved.layer.id === id)?.layer.label ?? '')
+    .map((id) => scene.layers.find((layer) => layer.id === id)?.label ?? '')
     .filter((name) => name !== '')
     .join(' / ');
   const title =
     snap.kind === 'curve'
       ? t('canvas.pointOnCurve', { layer: layerName ?? '' })
-      : snap.kind === 'intersection' && layerNames !== ''
-        ? t('canvas.intersection', { layers: layerNames })
-        : snap.label;
+      : snap.kind === 'shape'
+        ? t('canvas.pointOnShape', { layer: layerName ?? '' })
+        : snap.kind === 'intersection' && layerNames !== ''
+          ? t('canvas.intersection', { layers: layerNames })
+          : snap.label;
   drawBubble(
     ctx,
     { x: screen.x, y: screen.y },
@@ -745,29 +818,39 @@ function drawSnapIndicator(
   );
 }
 
-function drawBubble(
+function bubbleLayout(
   ctx: CanvasRenderingContext2D,
   anchor: Point,
   lines: readonly string[],
-  accent: string,
   canvasSize: CanvasSize,
+): BubbleLayout {
+  ctx.save();
+  ctx.font = CANVAS_FONT;
+  const widths = lines.map((line) => ctx.measureText(line).width);
+  ctx.restore();
+  const width = Math.min(240, Math.max(84, Math.max(...widths, 0) + 18));
+  const height = lines.length * 14 + 10;
+  let x = anchor.x - width / 2;
+  x = Math.max(6, Math.min(canvasSize.width - width - 6, x));
+  let y = anchor.y - height - 14;
+  if (y < 6) {
+    y = anchor.y + 16;
+  }
+  y = Math.max(6, Math.min(canvasSize.height - height - 6, y));
+  return { x, y, width, height };
+}
+
+function drawBubbleLayout(
+  ctx: CanvasRenderingContext2D,
+  layout: BubbleLayout,
+  lines: readonly string[],
+  accent: string,
 ): void {
   ctx.save();
   ctx.font = CANVAS_FONT;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
-  const widths = lines.map((line) => ctx.measureText(line).width);
-  const width = Math.min(240, Math.max(84, Math.max(...widths, 0) + 18));
-  const height = lines.length * 14 + 10;
-  let boxX = anchor.x - width / 2;
-  boxX = Math.max(6, Math.min(canvasSize.width - width - 6, boxX));
-  let boxY = anchor.y - height - 14;
-  if (boxY < 6) {
-    boxY = anchor.y + 16;
-  }
-  boxY = Math.max(6, Math.min(canvasSize.height - height - 6, boxY));
-
-  roundedRectPath(ctx, boxX, boxY, width, height, 8);
+  roundedRectPath(ctx, layout.x, layout.y, layout.width, layout.height, 8);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.97)';
   ctx.fill();
   ctx.strokeStyle = `${accent}55`;
@@ -777,12 +860,22 @@ function drawBubble(
   ctx.fillStyle = '#334155';
   lines.forEach((line, index) => {
     const text =
-      ctx.measureText(line).width > width - 16
+      ctx.measureText(line).width > layout.width - 16
         ? `${line.slice(0, Math.max(0, Math.floor(line.length / 2)))}…`
         : line;
-    ctx.fillText(text, boxX + 9, boxY + 12 + index * 14);
+    ctx.fillText(text, layout.x + 9, layout.y + 12 + index * 14);
   });
   ctx.restore();
+}
+
+function drawBubble(
+  ctx: CanvasRenderingContext2D,
+  anchor: Point,
+  lines: readonly string[],
+  accent: string,
+  canvasSize: CanvasSize,
+): void {
+  drawBubbleLayout(ctx, bubbleLayout(ctx, anchor, lines, canvasSize), lines, accent);
 }
 
 function roundedRectPath(

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { findFeatureSet, type FeatureLayer } from '../core/featureFinder';
-import type { FeaturePoint } from '../core/types';
+import type { FeaturePoint, Layer } from '../core/types';
 import { useLocaleStore } from '../i18n/useLocale';
 import { useGraphStore } from '../store/useGraphStore';
 import type { ResolvedLayer } from './useCompiledLayers';
@@ -15,6 +15,7 @@ export interface FeaturePointResult {
  * never on every animation frame.
  */
 export function useFeaturePoints(
+  layers: readonly Layer[],
   resolvedLayers: readonly ResolvedLayer[],
   activeLayerId: string | null,
 ): FeaturePointResult {
@@ -24,16 +25,31 @@ export function useFeaturePoints(
   const [features, setFeatures] = useState<FeaturePoint[]>([]);
   const [pending, setPending] = useState(false);
 
-  const featureLayers = useMemo<FeatureLayer[]>(
-    () =>
+  const featureLayers = useMemo<FeatureLayer[]>(() => {
+    const compiledById = new Map(
       resolvedLayers
-        .filter((resolved) => resolved.layer.visible && resolved.compiled !== null)
-        .map((resolved) => ({
-          id: resolved.layer.id,
-          compiled: resolved.compiled as NonNullable<ResolvedLayer['compiled']>,
-        })),
-    [resolvedLayers],
-  );
+        .filter(
+          (resolved): resolved is ResolvedLayer & { compiled: NonNullable<ResolvedLayer['compiled']> } =>
+            resolved.compiled !== null,
+        )
+        .map((resolved) => [resolved.layer.id, resolved.compiled]),
+    );
+    const result: FeatureLayer[] = [];
+    for (const layer of layers) {
+      if (!layer.visible) {
+        continue;
+      }
+      if (layer.kind === 'shape') {
+        result.push({ kind: 'shape', id: layer.id, shape: layer });
+      } else {
+        const compiled = compiledById.get(layer.id);
+        if (compiled) {
+          result.push({ kind: 'function', id: layer.id, compiled });
+        }
+      }
+    }
+    return result;
+  }, [layers, resolvedLayers]);
 
   useEffect(() => {
     if (!enabled || featureLayers.length === 0) {

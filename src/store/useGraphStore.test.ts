@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useGraphStore } from './useGraphStore';
 import { LAYER_COLORS, MAX_LAYERS, createLayer, resolveLayerExpression } from '../core/templates';
+import { createShapeLayer } from '../core/shapes';
+import type { FunctionLayer, ShapeLayer } from '../core/types';
 import { DEFAULT_VIEWPORT } from '../canvas/viewport';
 import { parseLatex } from '../core/latexParser';
 
@@ -22,8 +24,14 @@ function resetStore(): void {
   });
 }
 
-function currentLayer() {
-  return useGraphStore.getState().layers.find((layer) => layer.id === BASE_LAYER_ID);
+function currentLayer(): FunctionLayer | undefined {
+  const layer = useGraphStore.getState().layers.find((candidate) => candidate.id === BASE_LAYER_ID);
+  return layer?.kind === 'function' ? layer : undefined;
+}
+
+function currentShape(id: string): ShapeLayer | undefined {
+  const layer = useGraphStore.getState().layers.find((candidate) => candidate.id === id);
+  return layer?.kind === 'shape' ? layer : undefined;
 }
 
 describe('useGraphStore', () => {
@@ -176,5 +184,79 @@ describe('useGraphStore', () => {
     expect(layer?.mode).toBe('slots');
     expect(layer?.templateId).toBe('quadratic-standard');
     expect(layer?.slots).toEqual({ a: 1, b: 0, c: -4 });
+  });
+
+  it('adds circle and ellipse layers with their own labels', () => {
+    useGraphStore.getState().addLayer('circle');
+    let layers = useGraphStore.getState().layers;
+    expect(layers).toHaveLength(2);
+    const circle = layers[1];
+    expect(circle?.kind).toBe('shape');
+    expect(circle?.label).toBe('s1');
+    expect(circle?.color).toBe(LAYER_COLORS[1]);
+    if (circle?.kind === 'shape') {
+      expect(circle.shapeType).toBe('circle');
+      expect(circle.slots).toEqual({ h: 0, k: 0, r: 3 });
+    }
+
+    useGraphStore.getState().addLayer('ellipse');
+    layers = useGraphStore.getState().layers;
+    expect(layers).toHaveLength(3);
+    const ellipse = layers[2];
+    expect(ellipse?.label).toBe('s2');
+    if (ellipse?.kind === 'shape') {
+      expect(ellipse.shapeType).toBe('ellipse');
+      expect(ellipse.slots).toEqual({ h: 0, k: 0, a: 3, b: 2, theta: 0 });
+    }
+  });
+
+  it('switches shape type while preserving the centre', () => {
+    const shape = createShapeLayer({
+      id: 'shape-test',
+      label: 's1',
+      color: LAYER_COLORS[1],
+      shapeType: 'ellipse',
+      slots: { h: 2, k: -1, a: 4, b: 2, theta: 30 },
+    });
+    const first = currentLayer();
+    if (!first) {
+      throw new Error('missing base layer');
+    }
+    useGraphStore.setState({ layers: [first, shape], activeLayerId: shape.id });
+
+    useGraphStore.getState().setShapeType(shape.id, 'circle');
+    let updated = currentShape(shape.id);
+    expect(updated?.shapeType).toBe('circle');
+    expect(updated?.slots).toEqual({ h: 2, k: -1, r: 4 });
+
+    useGraphStore.getState().setShapeType(shape.id, 'ellipse');
+    updated = currentShape(shape.id);
+    expect(updated?.shapeType).toBe('ellipse');
+    expect(updated?.slots.h).toBe(2);
+    expect(updated?.slots.k).toBe(-1);
+    expect(updated?.slots.a).toBe(4);
+    expect(updated?.slots.theta).toBe(0);
+  });
+
+  it('clamps shape radii to positive values', () => {
+    useGraphStore.getState().addLayer('circle');
+    const circle = useGraphStore.getState().layers[1];
+    if (!circle || circle.kind !== 'shape') {
+      throw new Error('missing circle');
+    }
+    useGraphStore.getState().setSlotValue(circle.id, 'r', -5);
+    expect(currentShape(circle.id)?.slots.r).toBe(0.1);
+    useGraphStore.getState().setSlotValue(circle.id, 'r', 4.5);
+    expect(currentShape(circle.id)?.slots.r).toBe(4.5);
+  });
+
+  it('shares the eight-layer limit between functions and shapes', () => {
+    for (let index = 0; index < MAX_LAYERS + 3; index += 1) {
+      useGraphStore.getState().addLayer(index % 2 === 0 ? 'circle' : 'function');
+    }
+    const layers = useGraphStore.getState().layers;
+    expect(layers).toHaveLength(MAX_LAYERS);
+    expect(layers.filter((layer) => layer.kind === 'shape').length).toBeGreaterThan(0);
+    expect(layers.filter((layer) => layer.kind === 'function').length).toBeGreaterThan(0);
   });
 });

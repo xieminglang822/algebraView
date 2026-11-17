@@ -17,12 +17,16 @@ export interface PolynomialTerm {
   exponent: number;
 }
 
-export interface FunctionLayer {
+export interface LayerBase {
   id: string;
-  /** Short display label, e.g. `f1`. */
+  /** Short display label, e.g. `f1` for functions or `s1` for shapes. */
   label: string;
   color: string;
   visible: boolean;
+}
+
+export interface FunctionLayer extends LayerBase {
+  kind: 'function';
   templateId: TemplateId;
   mode: InputMode;
   slots: Record<string, number>;
@@ -30,6 +34,26 @@ export interface FunctionLayer {
   rawExpression: string;
   /** Last LaTeX string the user typed / OCR produced for this layer. */
   latexSource: string;
+}
+
+export type ShapeType = 'circle' | 'ellipse';
+
+export interface ShapeLayer extends LayerBase {
+  kind: 'shape';
+  shapeType: ShapeType;
+  slots: Record<string, number>;
+}
+
+export type Layer = FunctionLayer | ShapeLayer;
+
+export type NewLayerKind = 'function' | ShapeType;
+
+export function isFunctionLayer(layer: Layer): layer is FunctionLayer {
+  return layer.kind === 'function';
+}
+
+export function isShapeLayer(layer: Layer): layer is ShapeLayer {
+  return layer.kind === 'shape';
 }
 
 /** Structured payload that can be applied to a layer (LaTeX parser / OCR). */
@@ -57,7 +81,14 @@ export interface CanvasSize {
   height: number;
 }
 
-export type FeatureKind = 'zero' | 'y-intercept' | 'extremum' | 'intersection';
+export type FeatureKind =
+  | 'zero'
+  | 'y-intercept'
+  | 'extremum'
+  | 'intersection'
+  | 'center'
+  | 'vertex'
+  | 'focus';
 
 export interface FeaturePoint extends Point {
   kind: FeatureKind;

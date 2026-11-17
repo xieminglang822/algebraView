@@ -345,6 +345,7 @@ export function createLayer(options: CreateLayerOptions): FunctionLayer {
   const templateId = options.templateId ?? 'quadratic-standard';
   const slots = { ...createDefaultSlots(templateId), ...options.slots };
   return {
+    kind: 'function',
     id: options.id ?? createId('layer'),
     label: options.label,
     color: options.color,
@@ -425,7 +426,7 @@ export function structureToFormula(structure: LayerStructure): string {
   return template.formula(slots);
 }
 
-export function nextLayerColor(layers: readonly FunctionLayer[]): string {
+export function nextLayerColor(layers: readonly { color: string }[]): string {
   const used = new Set(layers.map((layer) => layer.color.toLowerCase()));
   const unused = LAYER_COLORS.find((color) => !used.has(color.toLowerCase()));
   if (unused) {
@@ -434,7 +435,7 @@ export function nextLayerColor(layers: readonly FunctionLayer[]): string {
   return LAYER_COLORS[layers.length % LAYER_COLORS.length];
 }
 
-export function nextLayerLabel(layers: readonly FunctionLayer[]): string {
+export function nextLayerLabel(layers: readonly { label: string }[]): string {
   let highest = 0;
   for (const layer of layers) {
     const match = /^f(\d+)$/.exec(layer.label);

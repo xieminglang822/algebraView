@@ -26,6 +26,7 @@ export function OcrModal({ open, layerId, onClose }: OcrModalProps) {
   const layers = useGraphStore((state) => state.layers);
   const applyStructure = useGraphStore((state) => state.applyStructure);
   const layer = layers.find((candidate) => candidate.id === layerId) ?? null;
+  const templateId = layer?.kind === 'function' ? layer.templateId : undefined;
   const provider = useMemo(() => resolveOcrProvider(), []);
   const providerLabel =
     provider.id === 'mathpix'
@@ -74,11 +75,9 @@ export function OcrModal({ open, layerId, onClose }: OcrModalProps) {
     }
     return parseLatex(latexText, {
       locale,
-      ...(layer?.templateId && layer.templateId !== 'raw'
-        ? { preferredTemplate: layer.templateId }
-        : {}),
+      ...(templateId && templateId !== 'raw' ? { preferredTemplate: templateId } : {}),
     });
-  }, [latexText, layer, locale]);
+  }, [latexText, templateId, locale]);
 
   if (!open || !layer) {
     return null;
@@ -113,7 +112,7 @@ export function OcrModal({ open, layerId, onClose }: OcrModalProps) {
       const result = await recogniseAndMap(
         processed,
         provider,
-        layer.templateId === 'raw' ? undefined : layer.templateId,
+        templateId === 'raw' ? undefined : templateId,
       );
       setMapping(result);
       setLatexText(result.recognition.latex);
