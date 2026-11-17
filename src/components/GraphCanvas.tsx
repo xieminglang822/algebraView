@@ -17,6 +17,8 @@ import { resolveLayerFormula } from '../core/templates';
 import type { CanvasSize, FeaturePoint, Point, Viewport } from '../core/types';
 import { useCompiledLayers, type ResolvedLayer } from '../hooks/useCompiledLayers';
 import { useFeaturePoints } from '../hooks/useFeaturePoints';
+import { t } from '../i18n/locale';
+import { useTranslation } from '../i18n/useLocale';
 import { useGraphStore, type GraphPreferences } from '../store/useGraphStore';
 
 interface SceneState {
@@ -40,6 +42,7 @@ const CANVAS_FONT = '11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", s
 const MAX_DPR = 2.5;
 
 export function GraphCanvas() {
+  const { t: translate } = useTranslation();
   const resolvedLayers = useCompiledLayers();
   const viewport = useGraphStore((state) => state.viewport);
   const activeLayerId = useGraphStore((state) => state.activeLayerId);
@@ -434,7 +437,7 @@ export function GraphCanvas() {
         <canvas
           ref={canvasRef}
           data-testid="graph-canvas"
-          aria-label="函数图像画布"
+          aria-label={translate('canvas.aria')}
           className="block h-full w-full cursor-crosshair touch-none select-none outline-none"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -445,28 +448,40 @@ export function GraphCanvas() {
       </div>
 
       <div className="pointer-events-none absolute left-3 top-3 hidden rounded-full bg-white/85 px-3 py-1 text-[10px] text-slate-400 shadow-sm ring-1 ring-slate-200 backdrop-blur sm:block">
-        滚轮缩放 · 拖拽平移 · 靠近曲线自动吸附取点
+        {translate('canvas.hint')}
       </div>
 
       {pending ? (
         <div className="pointer-events-none absolute left-3 top-11 rounded-full bg-white/85 px-2.5 py-0.5 text-[10px] text-slate-400 shadow-sm ring-1 ring-slate-200 sm:top-12">
-          特征点计算中…
+          {translate('canvas.featuresPending')}
         </div>
       ) : null}
 
       <div className="absolute right-3 top-3 flex flex-col gap-1.5">
-        <CanvasTool label="放大" testId="zoom-in" onClick={() => zoomBy(1.35)}>
+        <CanvasTool
+          label={translate('canvas.zoomIn')}
+          testId="zoom-in"
+          onClick={() => zoomBy(1.35)}
+        >
           <ZoomIn size={15} />
         </CanvasTool>
-        <CanvasTool label="缩小" testId="zoom-out" onClick={() => zoomBy(1 / 1.35)}>
+        <CanvasTool
+          label={translate('canvas.zoomOut')}
+          testId="zoom-out"
+          onClick={() => zoomBy(1 / 1.35)}
+        >
           <ZoomOut size={15} />
         </CanvasTool>
-        <CanvasTool label="重置视图" testId="reset-view" onClick={resetViewport}>
+        <CanvasTool
+          label={translate('canvas.resetView')}
+          testId="reset-view"
+          onClick={resetViewport}
+        >
           <RotateCcw size={15} />
         </CanvasTool>
         <span className="my-0.5 h-px bg-slate-200" />
         <CanvasTool
-          label="切换网格"
+          label={translate('canvas.toggleGrid')}
           testId="toggle-grid"
           active={preferences.showGrid}
           onClick={() => togglePreference('showGrid')}
@@ -474,7 +489,7 @@ export function GraphCanvas() {
           <LayoutGrid size={15} />
         </CanvasTool>
         <CanvasTool
-          label="切换特征点"
+          label={translate('canvas.toggleFeatures')}
           testId="toggle-features"
           active={preferences.showFeatures}
           onClick={() => togglePreference('showFeatures')}
@@ -482,7 +497,7 @@ export function GraphCanvas() {
           <Sparkles size={15} />
         </CanvasTool>
         <CanvasTool
-          label="切换吸附"
+          label={translate('canvas.toggleSnap')}
           testId="toggle-snap"
           active={preferences.snapEnabled}
           onClick={() => togglePreference('snapEnabled')}
@@ -520,15 +535,17 @@ export function GraphCanvas() {
       ) : (
         <div className="absolute inset-0 grid place-items-center bg-white/60">
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-600">画布还是空的</p>
-            <p className="mt-1 text-xs text-slate-400">添加一个函数图层，开始探索代数与图像。</p>
+            <p className="text-sm font-medium text-slate-600">
+              {translate('canvas.emptyTitle')}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">{translate('canvas.emptyBody')}</p>
             <button
               type="button"
               onClick={addLayer}
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
               <Plus size={14} />
-              添加函数
+              {translate('canvas.addFunction')}
             </button>
           </div>
         </div>
@@ -656,7 +673,7 @@ function drawFeatureMarkers(
         .join(' / ');
       const title =
         feature.kind === 'intersection' && layerNames !== ''
-          ? `交点 ${layerNames}`
+          ? t('canvas.intersection', { layers: layerNames })
           : feature.label;
       drawBubble(
         ctx,
@@ -715,9 +732,9 @@ function drawSnapIndicator(
     .join(' / ');
   const title =
     snap.kind === 'curve'
-      ? `${layerName ?? ''}(x) 上的点`
+      ? t('canvas.pointOnCurve', { layer: layerName ?? '' })
       : snap.kind === 'intersection' && layerNames !== ''
-        ? `交点 ${layerNames}`
+        ? t('canvas.intersection', { layers: layerNames })
         : snap.label;
   drawBubble(
     ctx,

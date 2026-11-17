@@ -1,5 +1,7 @@
 import { parse, type EvalFunction, type MathNode } from 'mathjs';
 import type { Point } from './types';
+import { getActiveLocale } from '../i18n/locale';
+import { translate, type Locale } from '../i18n/messages';
 
 export class ExpressionError extends Error {
   readonly expression: string;
@@ -65,57 +67,63 @@ export function coerceNumeric(value: unknown): number {
 }
 
 /** Turns a mathjs / JavaScript error into a friendly Chinese explanation. */
-export function describeMathError(error: unknown): string {
+export function describeMathError(
+  error: unknown,
+  locale: Locale = getActiveLocale(),
+): string {
   const message = error instanceof Error ? error.message : String(error);
   const undefinedSymbol = /Undefined symbol (\w+)/i.exec(message);
   if (undefinedSymbol && undefinedSymbol[1]) {
     const name = undefinedSymbol[1];
     if (name === 'y') {
-      return '未知符号「y」：请去掉「y =」前缀，只输入等号右侧的表达式。';
+      return translate(locale, 'math.unknownY');
     }
-    return `未知符号「${name}」：图像引擎只支持自变量 x。`;
+    return translate(locale, 'math.unknownSymbol', { name });
   }
   if (/Unexpected end of expression/i.test(message)) {
-    return '表达式不完整：结尾缺少数字、变量或右括号。';
+    return translate(locale, 'math.incomplete');
   }
   if (/Parenthesis \) expected/i.test(message)) {
-    return '括号不配对：缺少右括号「)」。';
+    return translate(locale, 'math.missingRightParen');
   }
   if (/Parenthesis \( expected/i.test(message)) {
-    return '括号不配对：缺少左括号「(」。';
+    return translate(locale, 'math.missingLeftParen');
   }
   if (/Unexpected character/i.test(message)) {
-    return `包含无法识别的字符：${message}`;
+    return translate(locale, 'math.badCharacter', { message });
   }
   if (/Unknown function/i.test(message)) {
-    return `未知函数：${message}`;
+    return translate(locale, 'math.unknownFunction', { message });
   }
   if (/Value expected/i.test(message)) {
-    return '运算符缺少操作数，请检查表达式是否完整。';
+    return translate(locale, 'math.missingOperand');
   }
   if (/Undefined symbol/i.test(message)) {
-    return `未知符号：${message}`;
+    return translate(locale, 'math.unknownSymbolDetail', { message });
   }
-  return `表达式无法解析：${message}`;
+  return translate(locale, 'math.cannotParse', { message });
 }
 
-function checkNode(node: MathNode): void {
+function checkNode(node: MathNode, locale: Locale): void {
   if (FORBIDDEN_NODE_TYPES.has(node.type)) {
-    throw new ExpressionError('只支持单个函数表达式，不支持赋值、方程或多行语句。', node.toString());
+    throw new ExpressionError(translate(locale, 'math.singleFunctionOnly'), node.toString());
   }
   node.forEach((child) => {
-    checkNode(child);
+    checkNode(child, locale);
   });
 }
 
 /**
  * Parses and compiles an expression against the single free variable `x`.
- * Throws {@link ExpressionError} with a human readable Chinese message.
+ * Throws {@link ExpressionError} with a message in the requested locale.
  */
-export function compileExpression(rawExpression: string): CompiledExpression {
+export function compileExpression(
+  rawExpression: string,
+  locale: Locale = getActiveLocale(),
+): CompiledExpression {
   const expression = rawExpression.trim();
   if (expression === '') {
-    throw new ExpressionError('表达式为空，请输入例如 x^2 - 4。', expression);
+    throw new ExpressionError(translate(locale, 'math.empty'), expression);
   }
 
   const cached = expressionCache.get(expression);
@@ -127,27 +135,27 @@ export function compileExpression(rawExpression: string): CompiledExpression {
   try {
     node = parse(expression);
   } catch (error) {
-    throw new ExpressionError(describeMathError(error), expression);
+    throw new ExpressionError(describeMathError(error, locale), expression);
   }
 
   try {
-    checkNode(node);
+    checkNode(node, locale);
   } catch (error) {
-    throw new ExpressionError(describeMathError(error), expression);
+    throw new ExpressionError(describeMathError(error, locale), expression);
   }
 
   let evaluator: EvalFunction;
   try {
     evaluator = node.compile();
   } catch (error) {
-    throw new ExpressionError(describeMathError(error), expression);
+    throw new ExpressionError(describeMathError(error, locale), expression);
   }
 
   // mathjs resolves symbols lazily; probe once so unknown variables surface here.
   try {
     evaluator.evaluate({ x: 0.5 });
   } catch (error) {
-    throw new ExpressionError(describeMathError(error), expression);
+    throw new ExpressionError(describeMathError(error, locale), expression);
   }
 
   const compiled: CompiledExpression = {
@@ -179,14 +187,20 @@ export interface ExpressionValidation {
   error: string | null;
 }
 
-export function validateExpression(rawExpression: string): ExpressionValidation {
+export function validateExpression(
+  rawExpression: string,
+  locale: Locale = getActiveLocale(),
+): ExpressionValidation {
   try {
-    compileExpression(rawExpression);
+    compileExpression(rawExpression, locale);
     return { ok: true, error: null };
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof ExpressionError ? error.message : describeMathError(error),
+      error:
+        error instanceof ExpressionError
+          ? error.message
+          : describeMathError(error, locale),
     };
   }
 }

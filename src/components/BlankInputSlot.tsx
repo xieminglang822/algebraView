@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { clamp, formatNumber, snapToStep } from '../core/numberFormat';
+import { useTranslation } from '../i18n/useLocale';
 
 export interface BlankInputSlotProps {
   slotKey: string;
@@ -35,6 +36,7 @@ export function BlankInputSlot({
   showSlider = true,
   ariaLabel,
 }: BlankInputSlotProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(() => formatNumber(value));
   const [focused, setFocused] = useState(false);
   const [sliderOpen, setSliderOpen] = useState(true);
@@ -67,8 +69,8 @@ export function BlankInputSlot({
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
-            aria-label={`减小 ${label}`}
-            title={`减小 ${label}`}
+            aria-label={t('slot.decrease', { label })}
+            title={t('slot.decrease', { label })}
             onClick={() => stepBy(-1)}
             className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 active:scale-95"
           >
@@ -107,8 +109,8 @@ export function BlankInputSlot({
           />
           <button
             type="button"
-            aria-label={`增大 ${label}`}
-            title={`增大 ${label}`}
+            aria-label={t('slot.increase', { label })}
+            title={t('slot.increase', { label })}
             onClick={() => stepBy(1)}
             className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 active:scale-95"
           >
@@ -122,8 +124,14 @@ export function BlankInputSlot({
           <button
             type="button"
             aria-expanded={sliderOpen}
-            aria-label={sliderOpen ? `收起 ${label} 滑块` : `展开 ${label} 滑块`}
-            title={sliderOpen ? '收起滑块' : '展开滑块'}
+            aria-label={
+              sliderOpen
+                ? t('slot.collapseSlider', { label })
+                : t('slot.expandSlider', { label })
+            }
+            title={
+              sliderOpen ? t('slot.collapseSliderTitle') : t('slot.expandSliderTitle')
+            }
             onClick={() => setSliderOpen((open) => !open)}
             className="grid h-5 w-5 shrink-0 place-items-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
           >
@@ -136,13 +144,15 @@ export function BlankInputSlot({
               max={sliderMax}
               step={step}
               value={sliderValue}
-              aria-label={`${label} 滑块`}
+              aria-label={t('slot.sliderAria', { label })}
               onChange={(event) => commit(Number(event.target.value))}
               style={{ accentColor }}
               className="h-1.5 min-w-0 flex-1 cursor-pointer"
             />
           ) : (
-            <span className="flex-1 text-[10px] text-slate-400">滑块已收起</span>
+            <span className="flex-1 text-[10px] text-slate-400">
+              {t('slot.sliderCollapsed')}
+            </span>
           )}
           <span className="w-10 shrink-0 text-right font-mono text-[10px] tabular-nums text-slate-400">
             {formatNumber(value)}

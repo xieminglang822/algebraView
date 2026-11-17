@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { ExpressionError, compileExpression, type CompiledExpression } from '../core/mathParser';
 import { resolveLayerExpression } from '../core/templates';
 import type { FunctionLayer } from '../core/types';
+import { useLocaleStore } from '../i18n/useLocale';
+import { translate } from '../i18n/messages';
 import { useGraphStore } from '../store/useGraphStore';
 
 export interface ResolvedLayer {
@@ -17,6 +19,7 @@ export interface ResolvedLayer {
  */
 export function useCompiledLayers(): ResolvedLayer[] {
   const layers = useGraphStore((state) => state.layers);
+  const locale = useLocaleStore((state) => state.locale);
   return useMemo(
     () =>
       layers.map((layer) => {
@@ -26,14 +29,14 @@ export function useCompiledLayers(): ResolvedLayer[] {
             layer,
             expression,
             compiled: null,
-            error: '请输入函数表达式',
+            error: translate(locale, 'card.needExpression'),
           };
         }
         try {
           return {
             layer,
             expression,
-            compiled: compileExpression(expression),
+            compiled: compileExpression(expression, locale),
             error: null,
           };
         } catch (error) {
@@ -42,10 +45,13 @@ export function useCompiledLayers(): ResolvedLayer[] {
             expression,
             compiled: null,
             error:
-              error instanceof ExpressionError ? error.message : '表达式无法解析，请检查输入。',
+              error instanceof ExpressionError
+                ? error.message
+                : translate(locale, 'card.expressionError'),
           };
         }
       }),
-    [layers],
+    // `locale` is a dependency because compile errors are localized at throw time.
+    [layers, locale],
   );
 }

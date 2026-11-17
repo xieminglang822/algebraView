@@ -1,5 +1,7 @@
 import type { FunctionLayer, LayerStructure, PolynomialTerm, TemplateId } from './types';
 import { formatNumber, parenthesise } from './numberFormat';
+import { getActiveLocale } from '../i18n/locale';
+import { translate, type Locale, type TranslationKey } from '../i18n/messages';
 
 export const MAX_LAYERS = 8;
 export const MAX_POLYNOMIAL_TERMS = 12;
@@ -31,17 +33,16 @@ export type LayerColor = (typeof LAYER_COLORS)[number];
 
 export interface SlotDefinition {
   key: string;
-  label: string;
+  labelKey: TranslationKey;
   defaultValue: number;
 }
 
-export type TemplateGroup = '多项式' | '三角 / 指对';
+export type TemplateGroup = 'polynomial' | 'trig';
 
 export interface TemplateDefinition {
   id: Exclude<TemplateId, 'raw'>;
-  name: string;
+  nameKey: TranslationKey;
   group: TemplateGroup;
-  description: string;
   slots: readonly SlotDefinition[];
   /** mathjs-compatible expression. */
   expression(slots: Readonly<Record<string, number>>): string;
@@ -133,13 +134,16 @@ export function polynomialExpressionFromTerms(terms: readonly PolynomialTerm[]):
   return parts.length > 0 ? parts.join('') : '0';
 }
 
-export const TEMPLATE_GROUPS: ReadonlyArray<{ group: TemplateGroup; ids: readonly TemplateId[] }> = [
+export const TEMPLATE_GROUPS: ReadonlyArray<{
+  groupKey: TranslationKey;
+  ids: readonly TemplateId[];
+}> = [
   {
-    group: '多项式',
+    groupKey: 'template.group.polynomial',
     ids: ['quadratic-standard', 'quadratic-vertex', 'linear', 'polynomial'],
   },
   {
-    group: '三角 / 指对',
+    groupKey: 'template.group.trig',
     ids: ['sine', 'cosine', 'exponential', 'logarithm'],
   },
 ];
@@ -147,13 +151,12 @@ export const TEMPLATE_GROUPS: ReadonlyArray<{ group: TemplateGroup; ids: readonl
 export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDefinition> = {
   'quadratic-standard': {
     id: 'quadratic-standard',
-    name: '二次函数 · 标准式',
-    group: '多项式',
-    description: 'y = ax² + bx + c',
+    nameKey: 'template.quadratic-standard.name',
+    group: 'polynomial',
     slots: [
-      { key: 'a', label: 'a（二次项系数）', defaultValue: 1 },
-      { key: 'b', label: 'b（一次项系数）', defaultValue: 0 },
-      { key: 'c', label: 'c（常数项）', defaultValue: -4 },
+      { key: 'a', labelKey: 'template.slot.quadratic-standard.a', defaultValue: 1 },
+      { key: 'b', labelKey: 'template.slot.quadratic-standard.b', defaultValue: 0 },
+      { key: 'c', labelKey: 'template.slot.quadratic-standard.c', defaultValue: -4 },
     ],
     expression: (slots) =>
       `${parenthesise(slots.a ?? 0)}*x^2 + ${parenthesise(slots.b ?? 0)}*x + ${parenthesise(slots.c ?? 0)}`,
@@ -166,13 +169,12 @@ export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDe
   },
   'quadratic-vertex': {
     id: 'quadratic-vertex',
-    name: '二次函数 · 顶点式',
-    group: '多项式',
-    description: 'y = a(x − h)² + k',
+    nameKey: 'template.quadratic-vertex.name',
+    group: 'polynomial',
     slots: [
-      { key: 'a', label: 'a（开口 / 伸缩）', defaultValue: 1 },
-      { key: 'h', label: 'h（左右平移）', defaultValue: 0 },
-      { key: 'k', label: 'k（上下平移）', defaultValue: 0 },
+      { key: 'a', labelKey: 'template.slot.quadratic-vertex.a', defaultValue: 1 },
+      { key: 'h', labelKey: 'template.slot.quadratic-vertex.h', defaultValue: 0 },
+      { key: 'k', labelKey: 'template.slot.quadratic-vertex.k', defaultValue: 0 },
     ],
     expression: (slots) =>
       `${parenthesise(slots.a ?? 0)}*(x - ${parenthesise(slots.h ?? 0)})^2 + ${parenthesise(slots.k ?? 0)}`,
@@ -188,12 +190,11 @@ export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDe
   },
   linear: {
     id: 'linear',
-    name: '一次函数 · 标准式',
-    group: '多项式',
-    description: 'y = ax + b',
+    nameKey: 'template.linear.name',
+    group: 'polynomial',
     slots: [
-      { key: 'a', label: 'a（斜率）', defaultValue: 1 },
-      { key: 'b', label: 'b（y 轴截距）', defaultValue: 0 },
+      { key: 'a', labelKey: 'template.slot.linear.a', defaultValue: 1 },
+      { key: 'b', labelKey: 'template.slot.linear.b', defaultValue: 0 },
     ],
     expression: (slots) => `${parenthesise(slots.a ?? 0)}*x + ${parenthesise(slots.b ?? 0)}`,
     formula: (slots) =>
@@ -204,9 +205,8 @@ export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDe
   },
   polynomial: {
     id: 'polynomial',
-    name: '多项式 · 自定义项',
-    group: '多项式',
-    description: 'y = Σ aᵢxⁿⁱ（可增减项）',
+    nameKey: 'template.polynomial.name',
+    group: 'polynomial',
     slots: [],
     // The polynomial template is backed by `layer.terms`, not by fixed slots.
     // `resolveLayerExpression` / `resolveLayerFormula` own its rendering.
@@ -215,14 +215,13 @@ export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDe
   },
   sine: {
     id: 'sine',
-    name: '正弦函数',
-    group: '三角 / 指对',
-    description: 'y = a·sin(bx + c) + d',
+    nameKey: 'template.sine.name',
+    group: 'trig',
     slots: [
-      { key: 'a', label: 'a（振幅）', defaultValue: 1 },
-      { key: 'b', label: 'b（角频率）', defaultValue: 1 },
-      { key: 'c', label: 'c（初相）', defaultValue: 0 },
-      { key: 'd', label: 'd（上下平移）', defaultValue: 0 },
+      { key: 'a', labelKey: 'template.slot.sine.a', defaultValue: 1 },
+      { key: 'b', labelKey: 'template.slot.sine.b', defaultValue: 1 },
+      { key: 'c', labelKey: 'template.slot.sine.c', defaultValue: 0 },
+      { key: 'd', labelKey: 'template.slot.sine.d', defaultValue: 0 },
     ],
     expression: (slots) =>
       `${parenthesise(slots.a ?? 0)}*sin(${parenthesise(slots.b ?? 0)}*x + ${parenthesise(slots.c ?? 0)}) + ${parenthesise(slots.d ?? 0)}`,
@@ -237,14 +236,13 @@ export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDe
   },
   cosine: {
     id: 'cosine',
-    name: '余弦函数',
-    group: '三角 / 指对',
-    description: 'y = a·cos(bx + c) + d',
+    nameKey: 'template.cosine.name',
+    group: 'trig',
     slots: [
-      { key: 'a', label: 'a（振幅）', defaultValue: 1 },
-      { key: 'b', label: 'b（角频率）', defaultValue: 1 },
-      { key: 'c', label: 'c（初相）', defaultValue: 0 },
-      { key: 'd', label: 'd（上下平移）', defaultValue: 0 },
+      { key: 'a', labelKey: 'template.slot.cosine.a', defaultValue: 1 },
+      { key: 'b', labelKey: 'template.slot.cosine.b', defaultValue: 1 },
+      { key: 'c', labelKey: 'template.slot.cosine.c', defaultValue: 0 },
+      { key: 'd', labelKey: 'template.slot.cosine.d', defaultValue: 0 },
     ],
     expression: (slots) =>
       `${parenthesise(slots.a ?? 0)}*cos(${parenthesise(slots.b ?? 0)}*x + ${parenthesise(slots.c ?? 0)}) + ${parenthesise(slots.d ?? 0)}`,
@@ -259,12 +257,11 @@ export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDe
   },
   exponential: {
     id: 'exponential',
-    name: '指数函数',
-    group: '三角 / 指对',
-    description: 'y = a·bˣ',
+    nameKey: 'template.exponential.name',
+    group: 'trig',
     slots: [
-      { key: 'a', label: 'a（纵向伸缩）', defaultValue: 1 },
-      { key: 'b', label: 'b（底数）', defaultValue: 2 },
+      { key: 'a', labelKey: 'template.slot.exponential.a', defaultValue: 1 },
+      { key: 'b', labelKey: 'template.slot.exponential.b', defaultValue: 2 },
     ],
     expression: (slots) => `${parenthesise(slots.a ?? 0)}*(${parenthesise(slots.b ?? 0)})^x`,
     formula: (slots) => {
@@ -279,12 +276,11 @@ export const TEMPLATE_DEFINITIONS: Record<Exclude<TemplateId, 'raw'>, TemplateDe
   },
   logarithm: {
     id: 'logarithm',
-    name: '对数函数',
-    group: '三角 / 指对',
-    description: 'y = a·log_b(x)',
+    nameKey: 'template.logarithm.name',
+    group: 'trig',
     slots: [
-      { key: 'a', label: 'a（纵向伸缩）', defaultValue: 1 },
-      { key: 'b', label: 'b（底数，需 > 0 且 ≠ 1）', defaultValue: 2 },
+      { key: 'a', labelKey: 'template.slot.logarithm.a', defaultValue: 1 },
+      { key: 'b', labelKey: 'template.slot.logarithm.b', defaultValue: 2 },
     ],
     expression: (slots) => `${parenthesise(slots.a ?? 0)}*log(x, ${parenthesise(slots.b ?? 0)})`,
     formula: (slots) => {
@@ -449,9 +445,12 @@ export function nextLayerLabel(layers: readonly FunctionLayer[]): string {
   return `f${highest + 1}`;
 }
 
-export function templateLabel(templateId: TemplateId): string {
+export function templateLabel(
+  templateId: TemplateId,
+  locale: Locale = getActiveLocale(),
+): string {
   if (templateId === 'raw') {
-    return '自由表达式';
+    return translate(locale, 'template.raw.name');
   }
-  return TEMPLATE_DEFINITIONS[templateId].name;
+  return translate(locale, TEMPLATE_DEFINITIONS[templateId].nameKey);
 }

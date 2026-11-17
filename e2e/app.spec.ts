@@ -14,7 +14,12 @@ function slider(card: Locator, label: string): Locator {
   return card.getByRole('slider', { name: `${label} 滑块`, exact: true });
 }
 
-async function gotoApp(page: Page): Promise<void> {
+async function gotoApp(page: Page, locale: 'zh' | 'en' = 'zh'): Promise<void> {
+  // Pin the UI language so assertions are deterministic (the app otherwise
+  // follows the browser locale on first visit).
+  await page.addInitScript((value) => {
+    window.localStorage.setItem('algebraView.locale', value);
+  }, locale);
   await page.goto(APP_PATH);
   await expect(page.getByTestId('graph-canvas')).toBeVisible();
 }
@@ -136,6 +141,27 @@ test.describe('algebraView smoke', () => {
     await expect(dialog.getByText(/识别引擎：/)).toBeVisible();
     await dialog.getByRole('button', { name: '关闭识别弹窗' }).click();
     await expect(dialog).toHaveCount(0);
+  });
+
+  test('switches between Chinese and English without losing the graph', async ({ page }) => {
+    await gotoApp(page, 'en');
+    await expect(page.getByRole('heading', { name: 'Function layers' })).toBeVisible();
+    await expect(page.getByTestId('add-layer')).toContainText(/Add/);
+    await expect(page.getByRole('tab', { name: 'Slots' })).toBeVisible();
+    await expect(page.getByTestId('graph-canvas')).toHaveAttribute(
+      'aria-label',
+      'Function graph canvas',
+    );
+
+    await page.getByTestId('language-toggle').click();
+    await expect(page.getByRole('heading', { name: '函数图层' })).toBeVisible();
+    await expect(page.getByTestId('add-layer')).toContainText('添加');
+    await expect(page.getByRole('tab', { name: '槽位' })).toBeVisible();
+    await expect(page.getByTestId('graph-canvas')).toHaveAttribute(
+      'aria-label',
+      '函数图像画布',
+    );
+    await expect(page.getByTestId('card-formula').first()).toContainText('x² − 4');
   });
 
   test('shows the symbolic derivative and exact roots', async ({ page }) => {

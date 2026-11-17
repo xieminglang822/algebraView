@@ -1,6 +1,8 @@
 import { parse, type MathNode } from 'mathjs';
 import type { LayerStructure, PolynomialTerm, TemplateId } from './types';
 import { coerceNumeric, describeMathError } from './mathParser';
+import { getActiveLocale, joinListFor } from '../i18n/locale';
+import { translate, type Locale } from '../i18n/messages';
 import {
   MAX_POLYNOMIAL_DEGREE,
   createDefaultSlots,
@@ -30,6 +32,7 @@ export type LatexParseResult = LatexParseSuccess | LatexParseFailure;
 
 export interface LatexParseOptions {
   preferredTemplate?: TemplateId;
+  locale?: Locale;
 }
 
 const SUPPORTED_COMMANDS = [
@@ -131,6 +134,7 @@ function findUnbalanced(
   source: string,
   open: string,
   close: string,
+  locale: Locale,
 ): { position: number; message: string } | null {
   let depth = 0;
   let openPosition = -1;
@@ -142,14 +146,19 @@ function findUnbalanced(
     } else if (character === close) {
       depth -= 1;
       if (depth < 0) {
-        return { position: index, message: `多出了一个「${close}」。` };
+        return { position: index, message: translate(locale, 'latex.extraClose', { close }) };
       }
     }
   }
   if (depth > 0) {
     return {
       position: openPosition,
-      message: `有 ${countCharacters(source, open)} 个「${open}」，但只有 ${countCharacters(source, close)} 个「${close}」。`,
+      message: translate(locale, 'latex.braceCount', {
+        openCount: countCharacters(source, open),
+        closeCount: countCharacters(source, close),
+        open,
+        close,
+      }),
     };
   }
   return null;
@@ -160,6 +169,7 @@ function readGroup(
   startIndex: number,
   open: string,
   close: string,
+  locale: Locale,
 ): { content: string; end: number } {
   let index = startIndex;
   while (source[index] === ' ') {
@@ -167,8 +177,11 @@ function readGroup(
   }
   if (source[index] !== open) {
     throw new LatexSyntaxError(
-      `「${source.slice(Math.max(0, startIndex - 8), startIndex + 8)}」附近缺少「${open}」。`,
-      '每个命令都需要成对的分组，例如 \\frac{a}{b}、x^{2}。',
+      translate(locale, 'latex.missingGroupOpen', {
+        snippet: source.slice(Math.max(0, startIndex - 8), startIndex + 8),
+        open,
+      }),
+      translate(locale, 'latex.groupHint'),
       index,
     );
   }
@@ -185,20 +198,20 @@ function readGroup(
     }
   }
   throw new LatexSyntaxError(
-    `「${open}」没有对应的「${close}」。`,
-    `补上「${close}」，例如 \\frac{1}{2}、x^{2}。`,
+    translate(locale, 'latex.unclosed', { open, close }),
+    translate(locale, 'latex.unclosedSuggestion', { close }),
     index,
   );
 }
 
-function convertFractions(source: string): string {
+function convertFractions(source: string, locale: Locale): string {
   let result = '';
   let index = 0;
   while (index < source.length) {
     if (source.startsWith('\\frac', index)) {
-      const numerator = readGroup(source, index + 5, '{', '}');
-      const denominator = readGroup(source, numerator.end, '{', '}');
-      result += `((${convertFractions(numerator.content)})/(${convertFractions(denominator.content)}))`;
+      const numerator = readGroup(source, index + 5, '{', '}', locale);
+      const denominator = readGroup(source, numerator.end, '{', '}', locale);
+      result += `((${convertFractions(numerator.content, locale)})/(${convertFractions(denominator.content, locale)}))`;
       index = denominator.end;
     } else {
       result += source[index];
@@ -208,7 +221,7 @@ function convertFractions(source: string): string {
   return result;
 }
 
-function convertSquareRoots(source: string): string {
+function convertSquareRoots(source: string, locale: Locale): string {
   let result = '';
   let index = 0;
   while (index < source.length) {
@@ -222,16 +235,16 @@ function convertSquareRoots(source: string): string {
         const close = source.indexOf(']', cursor);
         if (close === -1) {
           throw new LatexSyntaxError(
-            '根指数缺少右方括号「]」。',
-            '请写作 \\sqrt[3]{x}，或使用 \\sqrt{x} 表示平方根。',
+            translate(locale, 'latex.rootMissingBracket'),
+            translate(locale, 'latex.rootSuggestion'),
             cursor,
           );
         }
         rootIndex = source.slice(cursor + 1, close);
         cursor = close + 1;
       }
-      const group = readGroup(source, cursor, '{', '}');
-      const content = convertSquareRoots(group.content);
+      const group = readGroup(source, cursor, '{', '}', locale);
+      const content = convertSquareRoots(group.content, locale);
       result += rootIndex === '' ? `sqrt(${content})` : `(${content})^(1/(${rootIndex}))`;
       index = group.end;
     } else {
@@ -242,7 +255,11 @@ function convertSquareRoots(source: string): string {
   return result;
 }
 
-function matchParenthesis(source: string, startIndex: number): { content: string; end: number } {
+function matchParenthesis(
+  source: string,
+  startIndex: number,
+  locale: Locale,
+): { content: string; end: number } {
   let depth = 0;
   for (let cursor = startIndex; cursor < source.length; cursor += 1) {
     const character = source[cursor];
@@ -256,8 +273,8 @@ function matchParenthesis(source: string, startIndex: number): { content: string
     }
   }
   throw new LatexSyntaxError(
-    '括号没有对应的右括号「)」。',
-    '补上「)」，例如 \\log_{2}(x) 或 \\sin(2x + 1)。',
+    translate(locale, 'latex.parenMissing'),
+    translate(locale, 'latex.parenSuggestion'),
     startIndex,
   );
 }
@@ -268,7 +285,7 @@ function readToken(source: string, startIndex: number): string {
 }
 
 /** Rewrites `\log_{b}(x)` into mathjs `log(x, b)`. */
-function convertLogBases(source: string): string {
+function convertLogBases(source: string, locale: Locale): string {
   let result = '';
   let index = 0;
   while (index < source.length) {
@@ -279,11 +296,11 @@ function convertLogBases(source: string): string {
       }
       let base = '';
       if (source[cursor] === '{') {
-        const group = readGroup(source, cursor, '{', '}');
+        const group = readGroup(source, cursor, '{', '}', locale);
         base = group.content.trim();
         cursor = group.end;
       } else if (source[cursor] === '(') {
-        const group = matchParenthesis(source, cursor);
+        const group = matchParenthesis(source, cursor, locale);
         base = group.content.trim();
         cursor = group.end;
       } else {
@@ -294,8 +311,8 @@ function convertLogBases(source: string): string {
         cursor += 1;
       }
       if (base !== '' && source[cursor] === '(') {
-        const argument = matchParenthesis(source, cursor);
-        result += `log(${convertLogBases(argument.content)}, ${base})`;
+        const argument = matchParenthesis(source, cursor, locale);
+        result += `log(${convertLogBases(argument.content, locale)}, ${base})`;
         index = argument.end;
         continue;
       }
@@ -319,7 +336,7 @@ function insertImplicitMultiplication(source: string): string {
   return result;
 }
 
-function checkCommands(source: string): void {
+function checkCommands(source: string, locale: Locale): void {
   const commandPattern = /\\([A-Za-z]+)/g;
   const unsupported: string[] = [];
   let match: RegExpExecArray | null = commandPattern.exec(source);
@@ -332,8 +349,8 @@ function checkCommands(source: string): void {
   }
   if (unsupported.length > 0) {
     throw new LatexSyntaxError(
-      `不支持的命令：${unsupported.join('、')}。`,
-      `目前支持：\\frac、\\sqrt、\\pi、\\cdot、\\sin、\\cos、\\tan、\\log、\\ln、\\exp、\\left( \\right) 与 \\operatorname{}。参考写法：y = 2\\sin(x) + 1。`,
+      translate(locale, 'latex.unsupportedCommands', { list: joinListFor(locale, unsupported) }),
+      translate(locale, 'latex.supportedCommands'),
     );
   }
 }
@@ -342,11 +359,14 @@ function checkCommands(source: string): void {
  * Best-effort LaTeX → mathjs normalization. Throws {@link LatexSyntaxError}
  * with a concrete repair suggestion when the input cannot be tokenized.
  */
-export function normaliseLatex(rawLatex: string): NormalisedLatex {
+export function normaliseLatex(
+  rawLatex: string,
+  locale: Locale = getActiveLocale(),
+): NormalisedLatex {
   const warnings: string[] = [];
   let source = rawLatex.trim();
   if (source === '') {
-    throw new LatexSyntaxError('公式为空。', '请输入例如 y = x^2 - 4。');
+    throw new LatexSyntaxError(translate(locale, 'latex.empty'), translate(locale, 'latex.emptyExample'));
   }
   source = source.replace(/^\${1,2}/, '').replace(/\${1,2}$/, '').trim();
 
@@ -356,29 +376,23 @@ export function normaliseLatex(rawLatex: string): NormalisedLatex {
   }
   if (source.includes('=')) {
     throw new LatexSyntaxError(
-      '公式中出现了多余的等号。',
-      '只输入等号右侧的表达式，例如把「y = 2x + 1」写成「2x + 1」。',
+      translate(locale, 'latex.extraEquals'),
+      translate(locale, 'latex.extraEqualsSuggestion'),
     );
   }
   if (/\\\\|&/.test(source)) {
-    throw new LatexSyntaxError(
-      '不支持多行公式或对齐环境。',
-      '请一次只输入一个函数，例如 y = 2\\sin(x) + 1。',
-    );
+    throw new LatexSyntaxError(translate(locale, 'latex.multiline'), translate(locale, 'latex.multilineSuggestion'));
   }
   if (/\\(?:begin|end)\b/.test(source)) {
     throw new LatexSyntaxError(
-      '不支持 LaTeX 环境（\\begin … \\end）。',
-      '请只输入单行表达式，例如 \\frac{1}{2}x^2。',
+      translate(locale, 'latex.environment'),
+      translate(locale, 'latex.environmentSuggestion'),
     );
   }
   if (/[\u4e00-\u9fff]/.test(source)) {
-    throw new LatexSyntaxError(
-      '公式中混入了中文说明文字。',
-      '请把中文说明移到卡片备注中，公式里只保留数学符号。',
-    );
+    throw new LatexSyntaxError(translate(locale, 'latex.chinese'), translate(locale, 'latex.chineseSuggestion'));
   }
-  checkCommands(source);
+  checkCommands(source, locale);
 
   source = source
     .replace(/\u2212/g, '-')
@@ -418,46 +432,57 @@ export function normaliseLatex(rawLatex: string): NormalisedLatex {
     (_match: string, content: string) => content,
   );
 
-  const braceProblem = findUnbalanced(source, '{', '}');
+  const braceProblem = findUnbalanced(source, '{', '}', locale);
   if (braceProblem) {
     const missing = countCharacters(source, '{') - countCharacters(source, '}');
     const hint =
       missing > 0
-        ? `补上 ${missing} 个右花括号「}」，例如 \\frac{1}{2} 或 x^{2}。`
-        : '删除多余的右花括号「}」，或补上对应的「{」。';
-    throw new LatexSyntaxError(`花括号不配对：${braceProblem.message}`, hint, braceProblem.position);
+        ? translate(locale, 'latex.braceHintAdd', { count: missing })
+        : translate(locale, 'latex.braceHintRemove');
+    throw new LatexSyntaxError(
+      translate(locale, 'latex.braceMismatch', { message: braceProblem.message }),
+      hint,
+      braceProblem.position,
+    );
   }
 
-  source = convertFractions(source);
-  source = convertSquareRoots(source);
+  source = convertFractions(source, locale);
+  source = convertSquareRoots(source, locale);
   source = source.replace(
     /\\(arcsin|arccos|arctan|sinh|cosh|tanh|sin|cos|tan|cot|sec|csc|ln|log|exp|abs|sqrt)/g,
     (_match: string, name: string) => FUNCTION_COMMANDS[name] ?? name,
   );
-  source = convertLogBases(source);
+  source = convertLogBases(source, locale);
   source = source.replace(/\{/g, '(').replace(/\}/g, ')');
   source = source.replace(/\s+/g, ' ').trim();
 
   if (source === '') {
-    throw new LatexSyntaxError('公式为空。', '请输入例如 y = \\frac{1}{2}x^2 + 1。');
+    throw new LatexSyntaxError(translate(locale, 'latex.empty'), translate(locale, 'latex.emptyAfterNormalise'));
   }
 
-  const parenProblem = findUnbalanced(source, '(', ')');
+  const parenProblem = findUnbalanced(source, '(', ')', locale);
   if (parenProblem) {
     const missing = countCharacters(source, '(') - countCharacters(source, ')');
     const hint =
       missing > 0
-        ? `补上 ${missing} 个右括号「)」，例如 \\sin(2x + 1)。`
-        : '删除多余的右括号「)」，或补上对应的左括号「(」。';
-    throw new LatexSyntaxError(`括号不配对：${parenProblem.message}`, hint, parenProblem.position);
+        ? translate(locale, 'latex.parenHintAdd', { count: missing })
+        : translate(locale, 'latex.parenHintRemove');
+    throw new LatexSyntaxError(
+      translate(locale, 'latex.parenMismatch', { message: parenProblem.message }),
+      hint,
+      parenProblem.position,
+    );
   }
 
   if (/\\/.test(source)) {
-    throw new LatexSyntaxError('公式中还有无法识别的 LaTeX 命令。', '请检查反斜杠命令，例如只使用 \\sin、\\log、\\frac。');
+    throw new LatexSyntaxError(
+      translate(locale, 'latex.leftoverCommands'),
+      translate(locale, 'latex.leftoverSuggestion'),
+    );
   }
 
   if (/(sin|cos|tan|log|ln|sqrt|exp|abs)[A-Za-z0-9]/.test(source)) {
-    warnings.push('函数名后面建议加括号，例如 sin(x) 而不是 sinx。');
+    warnings.push(translate(locale, 'latex.functionParenWarning'));
   }
 
   source = insertImplicitMultiplication(source);
@@ -1141,17 +1166,20 @@ function failure(error: string, suggestion: string, position?: number): LatexPar
   };
 }
 
-function suggestionForMathError(code: string, message: string): string {
-  if (/括号|括号/i.test(message) || countCharacters(code, '(') !== countCharacters(code, ')')) {
-    return '检查括号配对，例如 y = 2\\sin(x + 1)。';
+function suggestionForMathError(code: string, message: string, locale: Locale): string {
+  if (
+    /parenthes|括号/i.test(message) ||
+    countCharacters(code, '(') !== countCharacters(code, ')')
+  ) {
+    return translate(locale, 'latex.suggestionParen');
   }
-  if (/不完整|缺少/i.test(message)) {
-    return '补全表达式，例如 y = x^2 - 4 或 y = 2\\sin(x) + 1。';
+  if (/不完整|incomplete|缺少|missing/i.test(message)) {
+    return translate(locale, 'latex.suggestionIncomplete');
   }
-  if (/未知符号|未知函数/.test(message)) {
-    return '只支持自变量 x，并使用 sin、cos、log、sqrt 等已知函数。';
+  if (/未知符号|未知函数|unknown symbol|unknown function/i.test(message)) {
+    return translate(locale, 'latex.suggestionSymbols');
   }
-  return '参考写法：y = x^2 - 4、y = 2\\sin(x) + 1、y = \\frac{1}{2}x^2、y = 2(x - 3)^2 + 1、y = 3 \\cdot 2^x。';
+  return translate(locale, 'latex.suggestionDefault');
 }
 
 /**
@@ -1160,17 +1188,15 @@ function suggestionForMathError(code: string, message: string): string {
  */
 export function parseLatex(rawLatex: string, options: LatexParseOptions = {}): LatexParseResult {
   const preferred = options.preferredTemplate;
+  const locale = options.locale ?? getActiveLocale();
   let normalized: NormalisedLatex;
   try {
-    normalized = normaliseLatex(rawLatex);
+    normalized = normaliseLatex(rawLatex, locale);
   } catch (error) {
     if (error instanceof LatexSyntaxError) {
       return failure(error.message, error.suggestion, error.position);
     }
-    return failure(
-      'LaTeX 公式无法解析。',
-      '请检查花括号、括号与命令拼写，例如 y = 2\\sin(x) + 1。',
-    );
+    return failure(translate(locale, 'latex.cannotParse'), translate(locale, 'latex.cannotParseSuggestion'));
   }
 
   let ast: MathNode;
@@ -1178,7 +1204,7 @@ export function parseLatex(rawLatex: string, options: LatexParseOptions = {}): L
     ast = parse(normalized.code);
   } catch (error) {
     const message = describeMathError(error);
-    return failure(message, suggestionForMathError(normalized.code, message));
+    return failure(message, suggestionForMathError(normalized.code, message, locale));
   }
   const root = asAst(ast);
 
@@ -1187,8 +1213,8 @@ export function parseLatex(rawLatex: string, options: LatexParseOptions = {}): L
   const unknownSymbols = [...symbols].filter((symbol) => !ALLOWED_SYMBOLS.has(symbol));
   if (unknownSymbols.length > 0) {
     return failure(
-      `只支持自变量 x，公式中出现了「${unknownSymbols.join('、')}」。`,
-      '请去掉额外变量（如 y、t），只输入等号右侧关于 x 的表达式，例如 2x + 1。',
+      translate(locale, 'latex.multiVars', { symbols: joinListFor(locale, unknownSymbols) }),
+      translate(locale, 'latex.multiVarsSuggestion'),
     );
   }
 
@@ -1280,9 +1306,9 @@ export function parseLatex(rawLatex: string, options: LatexParseOptions = {}): L
   }
 
   if (!chosen) {
-    warnings.push('未能匹配到预设模板，已切换为自由表达式模式，可继续手动编辑。');
+    warnings.push(translate(locale, 'latex.rawFallbackWarning'));
     if (containsX(root) === false) {
-      warnings.push('公式中没有自变量 x，图像将是一条水平线。');
+      warnings.push(translate(locale, 'latex.noXWarning'));
     }
     return {
       ok: true,
@@ -1296,25 +1322,28 @@ export function parseLatex(rawLatex: string, options: LatexParseOptions = {}): L
 
   if (preferred && chosen.templateId !== preferred) {
     warnings.push(
-      `公式与「${templateLabel(preferred)}」模板不完全匹配，已自动切换为「${templateLabel(chosen.templateId)}」模板。`,
+      translate(locale, 'latex.templateSwitchWarning', {
+        preferred: templateLabel(preferred, locale),
+        chosen: templateLabel(chosen.templateId, locale),
+      }),
     );
   }
   if (chosen.templateId === 'quadratic-vertex' && preferred !== 'quadratic-vertex') {
-    warnings.push('识别到顶点式结构，已填入 a、h、k 三个槽位。');
+    warnings.push(translate(locale, 'latex.vertexWarning'));
   }
   if (!containsX(root)) {
-    warnings.push('公式中没有自变量 x，图像将是一条水平线。');
+    warnings.push(translate(locale, 'latex.noXWarning'));
   }
   if (chosen.templateId === 'exponential') {
     const base = chosen.slots.b ?? 0;
     if (base <= 0 || Math.abs(base - 1) < 1e-12) {
-      warnings.push('指数函数的底数 b 必须大于 0 且不等于 1。');
+      warnings.push(translate(locale, 'latex.expBaseWarning'));
     }
   }
   if (chosen.templateId === 'logarithm') {
     const base = chosen.slots.b ?? 0;
     if (base <= 0 || Math.abs(base - 1) < 1e-12) {
-      warnings.push('对数函数的底数 b 必须大于 0 且不等于 1。');
+      warnings.push(translate(locale, 'latex.logBaseWarning'));
     }
   }
 

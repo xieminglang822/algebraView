@@ -5,6 +5,7 @@ import {
   grayscaleFromRgba,
   stretchContrast,
 } from './imageProcessing';
+import { t } from '../i18n/locale';
 
 export interface OcrImage {
   dataUrl: string;
@@ -46,7 +47,7 @@ export function preprocessImageFromSource(
   canvas.height = height;
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) {
-    throw new Error('当前浏览器无法创建 Canvas 2D 上下文，无法预处理图片。');
+    throw new Error(t('ocr.canvasUnavailable'));
   }
   context.fillStyle = '#ffffff';
   context.fillRect(0, 0, width, height);
@@ -91,7 +92,7 @@ async function loadImageSource(file: File): Promise<{ source: CanvasImageSource;
     const image = new Image();
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
-      image.onerror = () => reject(new Error('图片解码失败，请换一张 JPG / PNG 图片。'));
+      image.onerror = () => reject(new Error(t('ocr.decodeFailed')));
       image.src = url;
     });
     return { source: image, width: image.naturalWidth, height: image.naturalHeight };
@@ -124,7 +125,7 @@ export function textToLatex(text: string): string {
 
 export class TesseractOcrProvider implements MathOcrProvider {
   readonly id = 'tesseract';
-  readonly label = 'Tesseract.js（离线兜底）';
+  readonly label = t('ocr.provider.tesseract');
   readonly offline = true;
 
   async recognize(image: OcrImage): Promise<OcrRecognition> {
@@ -134,7 +135,7 @@ export class TesseractOcrProvider implements MathOcrProvider {
       const result = await worker.recognize(image.dataUrl);
       const text = result.data.text.trim();
       if (text === '') {
-        throw new Error('未能从图片中识别出文字：请拍清楚公式，或改用「LaTeX 输入」手动填写。');
+        throw new Error(t('ocr.emptyText'));
       }
       return {
         latex: textToLatex(text),
@@ -149,7 +150,7 @@ export class TesseractOcrProvider implements MathOcrProvider {
 
 export class MathpixOcrProvider implements MathOcrProvider {
   readonly id = 'mathpix';
-  readonly label = 'Mathpix（云端高精度）';
+  readonly label = t('ocr.provider.mathpix');
   readonly offline = false;
   private readonly appId: string;
   private readonly appKey: string;
@@ -176,7 +177,10 @@ export class MathpixOcrProvider implements MathOcrProvider {
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new Error(
-        `Mathpix 识别失败（HTTP ${response.status}）${detail ? `：${detail.slice(0, 160)}` : ''}。请检查 VITE_MATHPIX_APP_ID / VITE_MATHPIX_APP_KEY 是否有效。`,
+        t('ocr.mathpixHttp', {
+          status: response.status,
+          detail: detail ? `${detail.slice(0, 160)} ` : '',
+        }),
       );
     }
     const payload: unknown = await response.json();
@@ -188,7 +192,7 @@ export class MathpixOcrProvider implements MathOcrProvider {
     };
     const latex = (data.latex_styled ?? data.text ?? '').trim();
     if (latex === '') {
-      throw new Error(data.error ?? 'Mathpix 未返回识别结果，请重新拍摄或手动输入 LaTeX。');
+      throw new Error(data.error ?? t('ocr.mathpixEmpty'));
     }
     return {
       latex,
@@ -201,7 +205,7 @@ export class MathpixOcrProvider implements MathOcrProvider {
 /** Development-only provider so the OCR flow can be exercised without network access. */
 export class DemoOcrProvider implements MathOcrProvider {
   readonly id = 'demo';
-  readonly label = '示例识别（开发模式）';
+  readonly label = t('ocr.provider.demo');
   readonly offline = true;
 
   async recognize(): Promise<OcrRecognition> {

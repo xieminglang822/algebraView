@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { findFeatureSet, type FeatureLayer } from '../core/featureFinder';
 import type { FeaturePoint } from '../core/types';
+import { useLocaleStore } from '../i18n/useLocale';
 import { useGraphStore } from '../store/useGraphStore';
 import type { ResolvedLayer } from './useCompiledLayers';
 
@@ -19,6 +20,7 @@ export function useFeaturePoints(
 ): FeaturePointResult {
   const viewport = useGraphStore((state) => state.viewport);
   const enabled = useGraphStore((state) => state.preferences.showFeatures);
+  const locale = useLocaleStore((state) => state.locale);
   const [features, setFeatures] = useState<FeaturePoint[]>([]);
   const [pending, setPending] = useState(false);
 
@@ -43,7 +45,7 @@ export function useFeaturePoints(
     let cancelled = false;
     const timer = window.setTimeout(() => {
       try {
-        const next = findFeatureSet(featureLayers, activeLayerId, viewport);
+        const next = findFeatureSet(featureLayers, activeLayerId, viewport, locale);
         if (!cancelled) {
           setFeatures(next);
         }
@@ -61,7 +63,7 @@ export function useFeaturePoints(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [featureLayers, activeLayerId, viewport, enabled]);
+  }, [featureLayers, activeLayerId, viewport, enabled, locale]);
 
   return { features, pending };
 }

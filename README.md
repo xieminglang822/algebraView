@@ -20,6 +20,7 @@
 | **智能吸附与特征点** | 指针靠近曲线自动吸附并显示 `(x, y)` 浮窗；自动求解并标注激活函数的零点、y 轴截距、局部极值，以及任意两条曲线的交点 |
 | **间断点保护** | 采样时对 NaN/∞ 与斜率突变处主动断开 `lineTo`，`1/x`、`tan(x)`、`1/x²` 不会出现错误竖线 |
 | **符号分析** | mathjs 提供 `f′(x)`；nerdamer 懒加载提供精确零点，失败自动回退数值引擎 |
+| **中英双语** | 顶栏一键切换 `EN / 中文`；首次访问按浏览器语言自动选择并通过 `localStorage` 记忆。界面、模板/槽位名称、LaTeX 与 OCR 错误建议、特征点标签全部同步本地化 |
 | **PWA** | `public/manifest.json`（`display: standalone`）、SVG 图标、主题色，可「添加到主屏幕」 |
 
 ---
@@ -33,6 +34,10 @@
 | LaTeX 实时校验 | 拍照识别 → 校对 → 回填 |
 | --- | --- |
 | ![LaTeX 输入](docs/screenshots/latex-input.png) | ![OCR 校对](docs/screenshots/ocr-review.png) |
+
+**English UI**（same graph, fully localized interface）：
+
+![English UI](docs/screenshots/desktop-english.png)
 
 <p align="center">
   <img src="docs/screenshots/mobile.png" alt="移动端布局" width="320" />
@@ -109,7 +114,7 @@ npm run build       # vite build，产出 dist/
 
 也可一次运行：`npm run verify`。
 
-当前测试基线：**10 个测试文件 / 103 个用例全部通过**，覆盖：
+当前测试基线：**11 个测试文件 / 110 个用例全部通过**，覆盖：
 
 - 模板表达式构建与求值（8 套模板）
 - mathjs 编译、缓存、错误信息、采样与定义域缺口
@@ -121,8 +126,9 @@ npm run build       # vite build，产出 dist/
 - 符号求导与 nerdamer 精确求根（含去重 / 排序 / 不可解降级）
 - 图像预处理：灰度化、低对比度保护、自适应（积分图）二值化、反色、Otsu 兜底
 - OCR 引擎选择（Mathpix / Tesseract / Demo）与「识别文本 → LaTeX → 槽位」映射
+- 中英双语字典完整性、插值、模板/槽位名称、解析器与数学引擎错误本地化
 
-端到端冒烟（Playwright，桌面 Chromium + 移动 Chromium）**24 个用例全部通过**，覆盖初始渲染、UC-01 滑块联动、UC-02 多图层、LaTeX 应用与错误建议、多项式增删项、视口/网格/吸附开关、8 图层上限、OCR 弹窗、符号求导/精确零点与删除图层。
+端到端冒烟（Playwright，桌面 Chromium + 移动 Chromium）**26 个用例全部通过**，覆盖初始渲染、UC-01 滑块联动、UC-02 多图层、LaTeX 应用与错误建议、多项式增删项、视口/网格/吸附开关、8 图层上限、OCR 弹窗、中英切换与删除图层、符号求导/精确零点。
 
 ---
 
@@ -165,6 +171,7 @@ algebraView/
 │   │   ├── snapping.ts            # 曲线与特征点吸附
 │   │   └── viewport.ts            # 视口缩放 / 平移 / 1-2-5 刻度
 │   ├── store/useGraphStore.ts     # Zustand 全局状态树
+│   ├── i18n/                      # 中英字典、locale 检测/持久化、useTranslation
 │   ├── hooks/                     # 编译层、特征点防抖、符号分析
 │   ├── components/
 │   │   ├── FunctionCard.tsx       # 函数卡片（槽位 / LaTeX / 自由表达式）

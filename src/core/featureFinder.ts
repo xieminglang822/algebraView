@@ -1,5 +1,7 @@
 import type { CompiledExpression } from './mathParser';
 import type { FeaturePoint, Point, Viewport } from './types';
+import { getActiveLocale } from '../i18n/locale';
+import { translate, type Locale } from '../i18n/messages';
 
 export interface FindOptions {
   samples?: number;
@@ -362,7 +364,11 @@ export interface FeatureLayer {
   compiled: CompiledExpression;
 }
 
-function featuresForLayer(layer: FeatureLayer, viewport: Viewport): FeaturePoint[] {
+function featuresForLayer(
+  layer: FeatureLayer,
+  viewport: Viewport,
+  locale: Locale,
+): FeaturePoint[] {
   const features: FeaturePoint[] = [];
   const zeros = findZeros(layer.compiled, viewport.xMin, viewport.xMax, {
     samples: 1200,
@@ -374,7 +380,7 @@ function featuresForLayer(layer: FeatureLayer, viewport: Viewport): FeaturePoint
         x: zero.x,
         y: zero.y,
         kind: 'zero',
-        label: '零点',
+        label: translate(locale, 'feature.zero'),
         layerIds: [layer.id],
       });
     }
@@ -386,7 +392,7 @@ function featuresForLayer(layer: FeatureLayer, viewport: Viewport): FeaturePoint
       x: intercept.x,
       y: intercept.y,
       kind: 'y-intercept',
-      label: 'y 轴截距',
+      label: translate(locale, 'feature.yIntercept'),
       layerIds: [layer.id],
     });
   }
@@ -401,7 +407,10 @@ function featuresForLayer(layer: FeatureLayer, viewport: Viewport): FeaturePoint
         x: extremum.x,
         y: extremum.y,
         kind: 'extremum',
-        label: extremum.kind === 'minimum' ? '局部极小值' : '局部极大值',
+        label:
+          extremum.kind === 'minimum'
+            ? translate(locale, 'feature.minimum')
+            : translate(locale, 'feature.maximum'),
         layerIds: [layer.id],
       });
     }
@@ -414,6 +423,7 @@ function featuresForLayer(layer: FeatureLayer, viewport: Viewport): FeaturePoint
 export function findIntersectionFeatures(
   layers: readonly FeatureLayer[],
   viewport: Viewport,
+  locale: Locale = getActiveLocale(),
 ): FeaturePoint[] {
   const intersections: FeaturePoint[] = [];
   const xTolerance = (viewport.xMax - viewport.xMin) * 1e-3;
@@ -450,7 +460,7 @@ export function findIntersectionFeatures(
             x: point.x,
             y: point.y,
             kind: 'intersection',
-            label: '交点',
+            label: translate(locale, 'feature.intersection'),
             layerIds: [leftLayer.id, rightLayer.id],
           });
         }
@@ -469,9 +479,10 @@ export function findFeatureSet(
   layers: readonly FeatureLayer[],
   activeLayerId: string | null,
   viewport: Viewport,
+  locale: Locale = getActiveLocale(),
 ): FeaturePoint[] {
   const active = layers.find((layer) => layer.id === activeLayerId) ?? null;
-  const layerFeatures: FeaturePoint[] = active ? featuresForLayer(active, viewport) : [];
-  const intersections = findIntersectionFeatures(layers, viewport);
+  const layerFeatures = active ? featuresForLayer(active, viewport, locale) : [];
+  const intersections = findIntersectionFeatures(layers, viewport, locale);
   return [...layerFeatures, ...intersections].slice(0, MAX_FEATURES);
 }

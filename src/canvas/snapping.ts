@@ -1,5 +1,6 @@
 import type { FeatureLayer } from '../core/featureFinder';
 import type { FeaturePoint, Point } from '../core/types';
+import { t } from '../i18n/locale';
 
 export type SnapKind = 'curve' | FeaturePoint['kind'];
 
@@ -79,7 +80,7 @@ export function findSnapTarget(
         screen,
         distance,
         kind: 'curve',
-        label: '函数图像',
+        label: t('feature.curve'),
         layerId: layer.id,
         layerIds: [layer.id],
       };
