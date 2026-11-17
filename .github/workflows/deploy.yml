@@ -43,9 +43,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
+      # NOTE: Pages must be enabled once in Settings → Pages with the source set
+      # to "GitHub Actions". We deliberately omit actions/configure-pages: its
+      # `enablement` option requires a separate PAT, and none of its outputs are
+      # used here (the Vite base path is hard-coded to /algebraView/).
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
