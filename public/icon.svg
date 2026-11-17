@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="algebraView icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#4338ca" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <path d="M96 160h320M96 256h320M96 352h320M160 96v320M256 96v320M352 96v320" stroke="#ffffff" stroke-opacity="0.16" stroke-width="6" />
+  <path d="M64 384C136 384 176 128 256 128s120 256 192 256" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" />
+  <circle cx="256" cy="128" r="16" fill="#fbbf24" />
+  <text x="256" y="462" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="120" fill="#ffffff" text-anchor="middle" opacity="0.92">f</text>
+</svg>
